@@ -1,6 +1,3 @@
-
-*v_0.0.1 - Full-Stack Web Application Template*
-
 `Introduction`    
 
 This project is a comprehensive full-stack web application template designed to streamline the development process for modern web applications. It combines a robust backend built with Python and FastAPI, and a dynamic frontend powered by Next.js and React. This template is structured to support multiple environments (local, development, UAT, staging, and production) and includes a suite of tools for efficient development, testing, and deployment.
@@ -109,3 +106,4 @@ The project is organized into two main sections: backend and frontend.
 
 `Conclusion`
 This template provides a solid foundation for building scalable and maintainable web applications. It combines best practices in full-stack development with a suite of tools to enhance productivity and code quality. Whether you're building a small project or a large-scale application, this template offers the flexibility and robustness to meet your development needs.
+

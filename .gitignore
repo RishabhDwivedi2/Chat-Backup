@@ -1,0 +1,201 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.npm
+.yarn-integrity
+.pnp/
+.pnp.js
+
+# Next.js
+.next/
+out/
+.vercel
+
+# Production build
+build/
+dist/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# FastAPI
+__pycache__/
+*.pyc
+
+# Database files
+*.sql
+*.psql
+*.sqlite3
+*.db
+*.db-journal
+
+# IDEs and editors
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Docker
+*.env
+docker-compose.override.yml
+
+# CircleCI
+.circleci/
+
+# Logs
+logs/
+*.log
+
+# Coverage reports
+coverage/
+.coverage
+htmlcov/
+.nyc_output/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Tailwind CSS
+.tailwindcss-cache/
+
+# Cursor
+.cursor/
+
+# Digital Ocean
+.do/
+
+# Dynaconf
+.secrets.*
+settings.*.toml
+!settings.toml
+
+# Alembic
+alembic/versions/
+
+# Project specific
+.ai/
+devops_copy/
+workspace/files/*.md
+workspace/instructions/*.md
+.wip/
+
+# Tests
+__tests__/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+
+# Config files (keep .example files)
+*.config.js
+*.config.ts
+!*.config.example.js
+!*.config.example.ts
+
+# Large media files
+*.mp4
+*.tiff
+*.avi
+*.flv
+*.mov
+*.wmv
+*.wav
+*.flac
+
+# Images
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.ico
+*.svg
+
+# Audio
+*.mp3
+
+# Documents
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+
+# Compressed files
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+
+# Miscellaneous
+*.cache
+.cache/
+.eslintcache
+.stylelintcache
+.parcel-cache
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Generated files
+*.min.js
+*.min.css
+
+# Misc
+*.pid
+*.seed
+*.pid.lock

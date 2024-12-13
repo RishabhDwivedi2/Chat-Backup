@@ -22,6 +22,22 @@ export interface Artifact {
     isLoading?: boolean;
 }
 
+// Add the ChatCollection interface
+export interface Conversation {
+    id: number;
+    title: string;
+    last_message_at: string;
+    message_count: number;
+}
+
+export interface ChatCollection {
+    id: number;
+    collection_name: string;
+    created_at: string;
+    conversation_count: number;
+    conversations: Conversation[];
+}
+
 export interface FileHandlingProps {
     attachedFiles: UploadedFile[];
     setAttachedFiles: React.Dispatch<React.SetStateAction<UploadedFile[]>>;

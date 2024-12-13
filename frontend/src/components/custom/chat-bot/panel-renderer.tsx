@@ -1,7 +1,7 @@
 // File: src/components/custom/chat-bot/panel-renderer.tsx
 
 import dynamic from "next/dynamic";
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import ChatControls from "./chat-controls";
 import { ChatHeader } from "./chat-header";
@@ -19,7 +19,7 @@ import { UserProfile } from '@/config/profileConfig';
 import MoreOptions from "./mobile-view/more-options";
 import { useRouter } from "next/navigation";
 import useDynamicProfileConfigStore from "@/store/dynamicProfileConfigStore";
-import { Message } from "@/types/chat";
+import { Message, ChatCollection } from "@/types/chat";
 
 const AnimatedGridPattern = dynamic(
     () => import("@/components/magicui/animated-grid-pattern"),
@@ -36,8 +36,8 @@ interface Artifact {
 
 interface UploadedFile extends File {
     documentId?: number;
-    downloadUrl: string; 
-    storagePath: string; 
+    downloadUrl: string;
+    storagePath: string;
 }
 
 const generateChatId = () => {
@@ -88,32 +88,6 @@ const PanelRenderer: React.FC = () => {
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [lastGeneratedArtifact, setLastGeneratedArtifact] = useState<Artifact | null>(null);
 
-    useEffect(() => {
-        const handleStorageChange = (e: StorageEvent) => {
-            if (e.key === 'currentConversationId' && e.newValue === null) {
-                // This will be triggered when localStorage is cleared
-                const resetEvent = new CustomEvent('resetChat', {
-                    detail: { trigger: 'storage' }
-                });
-                window.dispatchEvent(resetEvent);
-            }
-        };
-
-        const handleChatReset = () => {
-            // Reset panel-level state if needed
-            setShowChatArtifacts(false);
-            setArtifactsData(null);
-            setLastGeneratedArtifact(null);
-        };
-
-        window.addEventListener('storage', handleStorageChange);
-        window.addEventListener('resetChat', handleChatReset);
-
-        return () => {
-            window.removeEventListener('storage', handleStorageChange);
-            window.removeEventListener('resetChat', handleChatReset);
-        };
-    }, []);
 
     useEffect(() => {
         const handleResize = () => {
@@ -127,9 +101,9 @@ const PanelRenderer: React.FC = () => {
     const { migrateConfigs } = useDynamicProfileConfigStore();
 
     useEffect(() => {
-      migrateConfigs();
+        migrateConfigs();
     }, [migrateConfigs]);
-  
+
 
     const layoutProps = useMemo(() => {
         return getLayoutProps(
@@ -267,10 +241,46 @@ const PanelRenderer: React.FC = () => {
         router.push("http://localhost:3000");
     };
 
-    const handleConversationSelect = (messages: any[]) => {
+
+
+    // Chat History
+
+
+
+    const [collections, setCollections] = useState<ChatCollection[]>([]);
+    const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+    const [historyError, setHistoryError] = useState<string | null>(null);
+    const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
+
+    useEffect(() => {
+        const handleStorageChange = (e: StorageEvent) => {
+            if (e.key === 'currentConversationId' && e.newValue === null) {
+                const resetEvent = new CustomEvent('resetChat', {
+                    detail: { trigger: 'storage' }
+                });
+                window.dispatchEvent(resetEvent);
+            }
+        };
+
+        const handleChatReset = () => {
+            setShowChatArtifacts(false);
+            setArtifactsData(null);
+            setLastGeneratedArtifact(null);
+        };
+
+        window.addEventListener('storage', handleStorageChange);
+        window.addEventListener('resetChat', handleChatReset);
+
+        return () => {
+            window.removeEventListener('storage', handleStorageChange);
+            window.removeEventListener('resetChat', handleChatReset);
+        };
+    }, []);
+
+    const handleConversationSelect = (messages: any[], conversationId: number) => {
         setMessages(messages);
-        
-        // Reset any relevant states
+        setActiveConversationId(conversationId);
+
         setAttachedFiles([]);
         setArtifacts(messages.reduce((acc: Artifact[], msg: any) => {
             if (msg.component && msg.data && msg.artifactId) {
@@ -285,6 +295,50 @@ const PanelRenderer: React.FC = () => {
             return acc;
         }, []));
     };
+
+    const fetchChatHistory = useCallback(async () => {
+        setIsHistoryLoading(true);
+        setHistoryError(null);
+
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('/api/chat-history', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch chat history');
+            }
+
+            const data = await response.json();
+            setCollections(data);
+        } catch (err) {
+            setHistoryError(err instanceof Error ? err.message : 'Failed to load chat history');
+            console.error('Error loading collections:', err);
+        } finally {
+            setIsHistoryLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchChatHistory();
+    }, []);
+
+    const handleNewChat = useCallback(() => {
+        setMessages([]);
+        setAttachedFiles([]);
+        setArtifacts([]);
+        localStorage.removeItem('currentConversationId');
+
+        const resetEvent = new CustomEvent('resetChat', {
+            detail: { trigger: 'newChat' }
+        });
+        window.dispatchEvent(resetEvent);
+
+        fetchChatHistory();
+    }, [fetchChatHistory]);
 
 
     return (
@@ -312,7 +366,7 @@ const PanelRenderer: React.FC = () => {
                         )}
                     </AnimatePresence>
 
-                    {showChatHistory && (
+                    <div className={`${!showChatHistory ? 'hidden' : ''}`}>
                         <ChatHistory
                             onClose={() => togglePanel('ChatHistory')}
                             className={isMobile ? "w-full" : "w-80"}
@@ -320,9 +374,15 @@ const PanelRenderer: React.FC = () => {
                             isCoreRunning={isCoreRunning}
                             onBackToWebsite={handleBackToWebsite}
                             isVisible={showChatHistory}
+                            collections={collections}
+                            isLoading={isHistoryLoading}
+                            error={historyError}
+                            onNewChat={handleNewChat}
+                            activeConversationId={activeConversationId}
                             onConversationSelect={handleConversationSelect}
+                            onRefreshHistory={fetchChatHistory}
                         />
-                    )}
+                    </div>
 
                     <div className="flex flex-col flex-1">
                         <ChatHeader
@@ -369,6 +429,8 @@ const PanelRenderer: React.FC = () => {
                                     className={`flex-1 ${isMobile ? 'w-full' : layoutProps.chatContainerWidth}`}
                                     isMobile={isMobile}
                                     onNewArtifact={handleNewArtifact}
+                                    onRefreshHistory={fetchChatHistory}
+                                    onSetActiveConversation={setActiveConversationId}
                                 />
                             )}
 

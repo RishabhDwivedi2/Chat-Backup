@@ -1,18 +1,26 @@
 // File: src/components/custom/chat-bot/chat-history.tsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, ChevronLeft, PanelLeftClose, MessageSquarePlus, MessageSquareText, DoorOpen, Minimize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import AnimatedShinyText from '@/components/magicui/animated-shiny-text';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { motion, AnimatePresence } from 'framer-motion';
-import { format } from 'date-fns';
+import { differenceInDays, format, isSameDay, isYesterday } from 'date-fns';
+
+interface Conversation {
+    id: number;
+    title: string;
+    last_message_at: string;
+    message_count: number;
+}
 
 interface ChatCollection {
     id: number;
     collection_name: string;
     created_at: string;
     conversation_count: number;
+    conversations: Conversation[];
 }
 
 interface ChatHistoryProps {
@@ -22,7 +30,13 @@ interface ChatHistoryProps {
     isCoreRunning: boolean;
     onBackToWebsite: () => void;
     isVisible: boolean;
-    onConversationSelect: (messages: any[]) => void;
+    onConversationSelect: (messages: any[], conversationId: number) => void; 
+    collections: ChatCollection[];
+    isLoading: boolean;
+    error: string | null;
+    onNewChat: () => void;
+    onRefreshHistory: () => Promise<void>; 
+    activeConversationId?: number | null;
 }
 
 export default function ChatHistory({
@@ -32,63 +46,46 @@ export default function ChatHistory({
     isCoreRunning,
     onBackToWebsite,
     isVisible,
-    onConversationSelect
+    onConversationSelect,
+    collections,
+    isLoading,
+    error,
+    onNewChat,
+    activeConversationId,
 }: ChatHistoryProps) {
-    const [collections, setCollections] = useState<ChatCollection[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-
-    const handleNewChat = () => {
-        localStorage.removeItem('currentConversationId');
-
-        const resetEvent = new CustomEvent('resetChat', {
-            detail: { trigger: 'newChat' }
-        });
-        window.dispatchEvent(resetEvent);
-
-        onClose();
-    };
+    const [selectedChatId, setSelectedChatId] = useState<number | null>(activeConversationId || null);
 
     useEffect(() => {
-        const fetchCollections = async () => {
-            if (!isVisible) return;
+        const storedConversationId = localStorage.getItem('currentConversationId');
+        if (storedConversationId) {
+            const conversationId = parseInt(storedConversationId);
+            setSelectedChatId(conversationId);
+            loadConversation(conversationId);
+        }
+    }, []);
 
-            setIsLoading(true);
-            setError(null);
+    useEffect(() => {
+        if (activeConversationId) {
+            setSelectedChatId(activeConversationId);
+        }
+    }, [activeConversationId]);
 
-            try {
-                const token = localStorage.getItem('token');
-                const response = await fetch('/api/chat-history', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
+    const handleChatClick = async (collection: ChatCollection) => {
+        if (!collection.conversations || collection.conversations.length === 0) {
+            console.error('No conversations found in collection');
+            return;
+        }
 
-                if (!response.ok) {
-                    throw new Error('Failed to fetch chat history');
-                }
+        const conversationId = collection.conversations[0].id;
+        setSelectedChatId(conversationId);
+        localStorage.setItem('currentConversationId', conversationId.toString());
+        await loadConversation(conversationId);
+    };
 
-                const data = await response.json();
-                setCollections(data);
-            } catch (err) {
-                setError(err instanceof Error ? err.message : 'Failed to load chat history');
-                console.error('Error loading collections:', err);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchCollections();
-    }, [isVisible]);
-
-    const handleChatClick = async (chatId: number) => {
+    const loadConversation = async (conversationId: number) => {
         try {
-            setIsLoading(true);
             const token = localStorage.getItem('token');
-
-            localStorage.setItem('currentConversationId', chatId.toString());
-
-            const response = await fetch(`/api/conversations/${chatId}`, {
+            const response = await fetch(`/api/conversations/${conversationId}`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -99,7 +96,6 @@ export default function ChatHistory({
             }
 
             const data = await response.json();
-
             const formattedMessages = data.messages.map((msg: any) => ({
                 role: msg.role,
                 content: msg.content,
@@ -111,45 +107,45 @@ export default function ChatHistory({
                 })
             }));
 
-            onConversationSelect(formattedMessages);
-
-            if (isMobile) {
-                onClose();
-            }
-
+            onConversationSelect(formattedMessages, conversationId);
         } catch (error) {
             console.error('Error loading conversation:', error);
-            setError('Failed to load conversation');
-        } finally {
-            setIsLoading(false);
         }
     };
 
+    const handleNewChat = () => {
+        setSelectedChatId(null);
+        localStorage.removeItem('currentConversationId');
+        onNewChat();
+    };
+
     const groupCollectionsByDate = (collections: ChatCollection[]) => {
+        const today = new Date();
+        
         return collections.reduce((groups, chat) => {
             const date = new Date(chat.created_at);
-            const today = new Date();
-            const yesterday = new Date(today);
-            yesterday.setDate(yesterday.getDate() - 1);
-
-            let dateGroup;
-            if (date.toDateString() === today.toDateString()) {
-                dateGroup = 'Today';
-            } else if (date.toDateString() === yesterday.toDateString()) {
-                dateGroup = 'Yesterday';
-            } else if (date > new Date(today.setDate(today.getDate() - 7))) {
-                dateGroup = format(date, 'EEEE');
-            } else {
-                dateGroup = 'Older';
+            
+            if (isSameDay(date, today)) {
+                if (!groups['Today']) groups['Today'] = [];
+                groups['Today'].push(chat);
             }
-
-            if (!groups[dateGroup]) {
-                groups[dateGroup] = [];
+            else if (isYesterday(date)) {
+                if (!groups['Yesterday']) groups['Yesterday'] = [];
+                groups['Yesterday'].push(chat);
             }
-            groups[dateGroup].push(chat);
+            else if (differenceInDays(today, date) <= 30) {
+                if (!groups['Last 30 Days']) groups['Last 30 Days'] = [];
+                groups['Last 30 Days'].push(chat);
+            }
+            else {
+                if (!groups['Older']) groups['Older'] = [];
+                groups['Older'].push(chat);
+            }
+            
             return groups;
         }, {} as Record<string, ChatCollection[]>);
     };
+
 
     const mobileVariants = {
         hidden: { x: '-100%' },
@@ -169,13 +165,12 @@ export default function ChatHistory({
         <AnimatePresence>
             {isVisible && (
                 <motion.div
-                    className={`
-                ${isMobile
-                            ? 'fixed top-0 left-0 bottom-0 w-[80%] max-w-[300px] z-50'
-                            : 'h-full border z-40 flex flex-col'}
-                bg-background text-foreground
-                ${className}
-              `}
+                className={`
+                    ${isMobile ? 'fixed top-0 left-0 bottom-0 w-[80%] max-w-[300px] z-50' : 'h-full border z-40 flex flex-col'}
+                    bg-background text-foreground 
+                    ${!isVisible ? 'hidden' : ''}
+                    ${className}
+                `}
                     variants={isMobile ? mobileVariants : desktopVariants}
                     initial="hidden"
                     animate="visible"
@@ -209,7 +204,7 @@ export default function ChatHistory({
                         <div className="flex-grow overflow-auto p-2">
                             <ul className="space-y-2">
                                 <li
-                                    className="text-muted-foreground flex items-center py-2 px-3 hover:bg-accent hover:text-accent-foreground rounded-md cursor-pointer"
+                                    className={`text-muted-foreground flex items-center py-2 px-3 hover:bg-accent hover:text-accent-foreground rounded-md cursor-pointer ${!selectedChatId ? 'bg-accent text-accent-foreground' : ''}`}
                                     onClick={handleNewChat}
                                 >
                                     <MessageSquarePlus className="w-4 h-4 mr-3" />
@@ -230,22 +225,26 @@ export default function ChatHistory({
                                     No chat history found
                                 </div>
                             ) : (
-                                Object.entries(groupedCollections).map(([date, chats]) => (
+                                Object.entries(groupCollectionsByDate(collections)).map(([date, collections]) => (
                                     <div key={date} className="mt-4">
                                         <h2 className="text-xs font-semibold text-muted-foreground mb-2">{date}</h2>
                                         <ul className="space-y-1">
-                                            {chats.map((chat) => (
-                                                <li
-                                                    key={chat.id}
-                                                    onClick={() => handleChatClick(chat.id)}
-                                                    className="flex items-center py-2 px-3 hover:bg-accent hover:text-accent-foreground rounded-md cursor-pointer group"
-                                                >
-                                                    <MessageSquareText className="w-4 h-4 mr-3 flex-shrink-0" />
-                                                    <span className="text-sm line-clamp-2 break-words">
-                                                        {chat.collection_name}
-                                                    </span>
-                                                </li>
-                                            ))}
+                                            {collections.map((collection) => {
+                                                const isSelected = collection.conversations?.[0]?.id === selectedChatId;
+                                                return (
+                                                    <li
+                                                        key={collection.id}
+                                                        onClick={() => handleChatClick(collection)}
+                                                        className={`flex items-center py-2 px-3 hover:bg-accent hover:text-accent-foreground rounded-md cursor-pointer group
+                                                            ${isSelected ? 'bg-accent text-accent-foreground' : ''}`}
+                                                    >
+                                                        <MessageSquareText className="w-4 h-4 mr-3 flex-shrink-0" />
+                                                        <span className="text-sm line-clamp-2 break-words">
+                                                            {collection.collection_name}
+                                                        </span>
+                                                    </li>
+                                                );
+                                            })}
                                         </ul>
                                     </div>
                                 ))

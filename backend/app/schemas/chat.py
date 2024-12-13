@@ -197,11 +197,25 @@ class ArtifactMetadata(ArtifactMetadataBase):
 
 # Response Schemas
 
+
+class ConversationBrief(BaseModel):
+    id: int
+    title: str
+    last_message_at: datetime
+    message_count: int
+
+    class Config:
+        from_attributes = True
+        
 class ChatCollectionResponse(BaseModel):
     id: int
     collection_name: str
     created_at: datetime
     conversation_count: int
+    conversations: List[ConversationBrief] = []
+
+    class Config:
+        from_attributes = True
 
 class ConversationResponse(BaseModel):
     id: int

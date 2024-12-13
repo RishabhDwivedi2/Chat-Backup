@@ -33,7 +33,9 @@ Pwd : Bhu87ygv123a#
 gcloud auth application-default login
 
 
+//My Meeting Link
 
+https://meet.google.com/hub-iayu-bgy
 
 -------------------------------------------------------------------------------------------------------------------------
 

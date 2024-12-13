@@ -64,8 +64,9 @@ interface ChatContainerProps {
     isChatArtifactsActive: React.Dispatch<React.SetStateAction<boolean>>;
     isMobile: boolean;
     onNewArtifact: (artifact: Artifact) => void;
+    onRefreshHistory: () => Promise<void>;
+    onSetActiveConversation: (conversationId: number) => void; 
 }
-
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({
     messages,
@@ -88,6 +89,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     isChatArtifactsActive,
     isMobile,
     onNewArtifact,
+    onRefreshHistory,
+    onSetActiveConversation
 }) => {
     const { toast } = useToast();
     const [inputMessage, setInputMessage] = useState("");
@@ -103,31 +106,29 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
     useEffect(() => {
         const handleChatReset = (event: CustomEvent) => {
-            // Reset messages to initial state
-            // setMessages([
-            //     { role: "assistant", content: "Hello! How can I assist you today?" }
-            // ]);
-            
-            // Clear attached files
+            setMessages([]);
             setAttachedFiles([]);
-            
-            // Reset input if any
             setInputMessage("");
             resetTextareaHeight();
-            
-            // Reset any artifacts if they exist
             setArtifacts([]);
         };
 
-        // Add event listener with type assertion
-        window.addEventListener('resetChat', handleChatReset as EventListener);
+        const handleStorageChange = (e: StorageEvent) => {
+            if (e.key === 'currentConversationId' && e.newValue === null) {
+                setMessages([]);
+                setAttachedFiles([]);
+                setInputMessage("");
+            }
+        };
 
-        // Cleanup
+        window.addEventListener('resetChat', handleChatReset as EventListener);
+        window.addEventListener('storage', handleStorageChange);
+
         return () => {
             window.removeEventListener('resetChat', handleChatReset as EventListener);
+            window.removeEventListener('storage', handleStorageChange);
         };
-    }, [setMessages, setAttachedFiles]); // Include all necessary dependencies
-
+    }, []);
 
     const adjustTextareaHeight = (textarea: HTMLTextAreaElement) => {
         textarea.style.height = "auto";
@@ -168,19 +169,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             });
         }
     };
-
-    useEffect(() => {
-        const handleStorageChange = (e: StorageEvent) => {
-            if (e.key === 'currentConversationId' && e.newValue === null) {
-                setMessages([]);
-                setAttachedFiles([]);
-                setInputMessage("");
-            }
-        };
-
-        window.addEventListener('storage', handleStorageChange);
-        return () => window.removeEventListener('storage', handleStorageChange);
-    }, []);
 
     const showTypingEffect = async (text: string, baseTypingSpeed = 1) => {
         let typedMessage = '';
@@ -224,7 +212,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
             if (files && Array.isArray(files) && files.length > 0) {
                 console.group('Attached Files');
-                files.forEach((file, index) => {  // Use the files parameter here
+                files.forEach((file, index) => {  
                     console.log(`File ${index + 1}:`, {
                         name: file.name,
                         type: file.type,
@@ -237,21 +225,21 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 console.groupEnd();
             }
 
-            const newUserMessage = { 
+            const newUserMessage = {
                 id: `msg-${Date.now()}`,
-                role: "user", 
-                content: inputMessage, 
-                files: files 
+                role: "user",
+                content: inputMessage,
+                files: files
             };
             setMessages((prevMessages) => [...prevMessages, newUserMessage]);
 
             setInputMessage("");
             setAttachedFiles([]);
 
-            const pendingAssistantMessage = { 
+            const pendingAssistantMessage = {
                 id: `msg-${Date.now()}-pending`,
-                role: "assistant_pending", 
-                content: "Assistant is analyzing..." 
+                role: "assistant_pending",
+                content: "Assistant is analyzing..."
             };
             setMessages((prevMessages) => [...prevMessages, pendingAssistantMessage]);
             scrollToBottom();
@@ -278,6 +266,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 const authHeader = token ? `Bearer ${token}` : '';
 
                 const currentConversationId = localStorage.getItem('currentConversationId');
+                const isNewConversation = !currentConversationId;
 
                 const formData = new FormData();
                 formData.append('prompt', inputMessage);
@@ -293,7 +282,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
                 if (files && files.length > 0) {
                     console.group('Processing files for FormData:');
-                    
+
                     files.forEach((file) => {
                         const attachmentData = {
                             name: file.name,
@@ -303,15 +292,14 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                             downloadUrl: file.downloadUrl,
                             fileDetails: file.fileDetails
                         };
-                
+
                         console.log('Adding attachment to FormData:', attachmentData);
                         formData.append('attachments', JSON.stringify(attachmentData));
                     });
-                    
+
                     console.groupEnd();
                 }
-        
-                // Log final FormData contents
+
                 console.group('Final FormData Contents:');
                 for (const [key, value] of formData.entries()) {
                     if (value instanceof File) {
@@ -347,7 +335,13 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 console.log("Response Conversation ID:", parsedResponse.message.conversation_id);
 
                 if (parsedResponse.message.conversation_id) {
-                    localStorage.setItem('currentConversationId', String(parsedResponse.message.conversation_id));
+                    const newConversationId = String(parsedResponse.message.conversation_id);
+                    localStorage.setItem('currentConversationId', newConversationId);
+
+                    if (!currentConversationId) {
+                        await onRefreshHistory();
+                        onSetActiveConversation(parseInt(newConversationId));
+                    }
                 }
 
                 const structuredResponse = parsedResponse.message.structured_response;

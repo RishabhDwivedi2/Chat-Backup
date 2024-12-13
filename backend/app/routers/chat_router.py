@@ -31,7 +31,8 @@ from app.schemas.chat import (
     Conversation,
     ConversationWithMessages,
     MessageWithDetails,
-    ChatCollectionResponse
+    ChatCollectionResponse,
+    ConversationBrief,
 )
 
 router = APIRouter()
@@ -299,7 +300,6 @@ async def get_chat_response(
             detail=f"Failed to process chat request: {str(e)}"
         )
         
-
 @router.get("/collections", response_model=List[ChatCollectionResponse])
 async def get_user_collections(
     request: Request,
@@ -308,33 +308,50 @@ async def get_user_collections(
 ):
     """
     Get all chat collections for the authenticated user.
-    Returns a list of collections with their IDs and names.
+    Returns a list of collections with their IDs, names, and associated conversations.
     """
     try:
         user_email = current_user.get('sub')
         logger.debug(f"Fetching collections for user {user_email}")
         
+        # Query collections with their conversations
         collections = (
             db.query(ChatCollection)
             .filter(
                 ChatCollection.user_email == user_email,
                 ChatCollection.is_active == True
             )
+            .options(joinedload(ChatCollection.conversations))
             .order_by(ChatCollection.created_at.desc())
             .all()
         )
         
         # Format the response using the schema
-        collection_responses = [
-            ChatCollectionResponse(
+        collection_responses = []
+        for collection in collections:
+            # Format conversations for this collection
+            conversations = [
+                ConversationBrief(
+                    id=conv.id,
+                    title=conv.title,
+                    last_message_at=conv.last_message_at,
+                    message_count=conv.message_count
+                )
+                for conv in collection.conversations
+                if conv.status != 'deleted'  # Exclude deleted conversations
+            ]
+            
+            # Create collection response with conversations
+            collection_response = ChatCollectionResponse(
                 id=collection.id,
                 collection_name=collection.collection_name,
                 created_at=collection.created_at,
-                conversation_count=collection.conversation_count
-            ) for collection in collections
-        ]
+                conversation_count=collection.conversation_count,
+                conversations=conversations
+            )
+            collection_responses.append(collection_response)
         
-        logger.info(f"Successfully retrieved {len(collection_responses)} collections for user {user_email}")
+        logger.info(f"Successfully retrieved {len(collection_responses)} collections with their conversations for user {user_email}")
         return collection_responses
         
     except Exception as e:
@@ -343,7 +360,6 @@ async def get_user_collections(
             status_code=500,
             detail=f"Failed to fetch collections: {str(e)}"
         )
-
         
 @router.get("/conversations/{conversation_id}", response_model=ConversationWithMessages)
 async def get_conversation_details(

@@ -481,6 +481,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 handleArtifactClick={handleArtifactClick}
                 profile={profile}
                 chatFontStyle={chatFontStyle}
+                onShowChatArtifacts={setShowChatArtifacts}
+                setArtifactsData={setArtifactsData}
             />
 
             {panelList.includes("ChatControls") && (

@@ -16,31 +16,26 @@ from typing import Optional
 from app.routers.gateway_router import router as gateway_router
 from app.cache.token_cache import TokenVerifier
 from app.middleware.session_middleware import SessionMiddleware 
-from app.cloud.firebase_config import initialize_firebase
 from firebase_admin import storage
 from contextlib import asynccontextmanager
+from supabase import create_client, Client
+from app.utils.schema_generator import generate_schema
+from app.models.user import User
+from app.models.chat import ChatCollection, Conversation, Message
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 bearer_scheme = HTTPBearer()  
 token_verifier = TokenVerifier()
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-   # Startup
-   try:
-       initialize_firebase()
-       bucket = storage.bucket()  
-       logger.info("Firebase initialized successfully")
-   except Exception as e:
-       logger.error(f"Firebase initialization failed: {e}")
-       raise
-   yield
+   
+supabase: Client = create_client(
+    settings.SUPABASE.URL,
+    settings.SUPABASE.KEY
+)
 
 app = FastAPI(
     title=settings.PROJECT.NAME,
-    lifespan=lifespan,
     debug=settings.ENV.DEBUG,
     openapi_tags=[{
         "name": "chat",
@@ -80,6 +75,7 @@ PUBLIC_PATHS = [
     "/api/users/all",
     "/docs",
     "/redoc",
+    "/test-supabase",
 ]
 
 PUBLIC_PREFIXES = ["/docs"]
@@ -220,8 +216,7 @@ async def general_exception_handler(request: Request, exc: Exception):
     
 @app.get("/")
 async def root():
-    return {"message": "Welcome to the API"}  
-
+    return {"message": "Welcome to the API"}               
 
 if __name__ == "__main__":
     import uvicorn

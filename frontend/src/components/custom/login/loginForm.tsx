@@ -32,6 +32,8 @@ export function LoginForm() {
         e.preventDefault()
         setError("")
         try {
+            localStorage.removeItem('currentConversationId');
+
             const response = await fetch('/api/login', {
                 method: 'POST',
                 headers: {

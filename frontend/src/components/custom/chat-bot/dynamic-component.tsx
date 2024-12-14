@@ -15,7 +15,6 @@ import { TransformedChartData } from '@/utils/artifactTransformer';
 import YAxisWrapper from '@/utils/YAxisWrapper';
 import XAxisWrapper from '@/utils/XAxisWrapper';
 
-// Move interfaces outside component
 interface BaseComponentData {
     title?: string;
     style?: React.CSSProperties;

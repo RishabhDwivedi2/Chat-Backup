@@ -90,23 +90,43 @@ export default function ChatHistory({
                     'Authorization': `Bearer ${token}`
                 }
             });
-
+    
             if (!response.ok) {
                 throw new Error('Failed to fetch conversation');
             }
-
+    
             const data = await response.json();
-            const formattedMessages = data.messages.map((msg: any) => ({
-                role: msg.role,
-                content: msg.content,
-                ...(msg.attachments?.length > 0 && { files: msg.attachments }),
-                ...(msg.artifacts?.length > 0 && {
+            const formattedMessages = data.messages.map((msg: any) => {
+                const formattedFiles = msg.attachments?.map((attachment: any) => {
+                  const downloadUrl = attachment.attachment_metadata?.download_url; // Updated line
+                  if (!downloadUrl) {
+                    console.warn('Attachment missing download URL:', attachment);
+                    return null;
+                  }
+              
+                  return {
+                    name: attachment.original_filename,
+                    type: attachment.file_type,
+                    size: attachment.file_size,
+                    downloadUrl: downloadUrl,
+                    storagePath: attachment.attachment_metadata?.storage_path,
+                    fileDetails: attachment
+                  };
+                }).filter(Boolean);
+              
+                return {
+                  role: msg.role,
+                  content: msg.content,
+                  ...(formattedFiles?.length > 0 && { files: formattedFiles }),
+                  ...(msg.artifacts?.length > 0 && {
                     component: msg.artifacts[0].component_type,
                     data: msg.artifacts[0].data,
                     artifactId: msg.artifacts[0].id
-                })
-            }));
-
+                  })
+                };
+              });
+              
+    
             onConversationSelect(formattedMessages, conversationId);
         } catch (error) {
             console.error('Error loading conversation:', error);
@@ -239,7 +259,7 @@ export default function ChatHistory({
                                                             ${isSelected ? 'bg-accent text-accent-foreground' : ''}`}
                                                     >
                                                         <MessageSquareText className="w-4 h-4 mr-3 flex-shrink-0" />
-                                                        <span className="text-sm line-clamp-2 break-words">
+                                                        <span className="text-sm line-clamp-1 break-words">
                                                             {collection.collection_name}
                                                         </span>
                                                     </li>

@@ -12,11 +12,10 @@ import { useToast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 import { ImagePreview, FilePreview } from './Preview';
 import Speech from './chat-form-interface/speech-to-speech-interface';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { storage } from '@/lib/firebase';
 import { validateFile, processFile } from '@/utils/fileHandlers';
 import { ImageFileDetails, VideoFileDetails, DocumentFileDetails } from '@/types/file';
 import { pasteValidator, PasteValidator } from '@/utils/pasteValidator';
+import { supabase } from '@/lib/supabase';
 
 interface UploadedFile extends File {
     downloadUrl: string;
@@ -55,7 +54,7 @@ export const ChatForm: React.FC<ChatFormProps> = ({
         const validationResult = await pasteValidator.validatePaste(
             e.clipboardData,
             attachedFiles.length,
-            uploadToFirebase
+            uploadToSupabase
         );
     
         if (!validationResult.isValid && validationResult.shouldCreateFile) {
@@ -63,7 +62,7 @@ export const ChatForm: React.FC<ChatFormProps> = ({
             setIsUploading(true); 
             
             if (validationResult.processedFile) {
-                const uploadedFile = await uploadToFirebase(validationResult.processedFile);
+                const uploadedFile = await uploadToSupabase(validationResult.processedFile);
                 if (uploadedFile) {
                     setAttachedFiles(prev => [...prev, uploadedFile]);
                 }
@@ -72,7 +71,7 @@ export const ChatForm: React.FC<ChatFormProps> = ({
         }
     };
 
-    const uploadToFirebase = async (file: File): Promise<UploadedFile | null> => {
+    const uploadToSupabase = async (file: File): Promise<UploadedFile | null> => {
         const validationError = validateFile(file);
         if (validationError) {
             console.error('Validation Failed:', validationError);
@@ -86,64 +85,39 @@ export const ChatForm: React.FC<ChatFormProps> = ({
             });
             return null;
         }
-
+    
         try {
             const fileDetails = await processFile(file);
-            console.log('Processed File Details:', {
-                ...fileDetails,
-                ...(fileDetails as ImageFileDetails).width && {
-                    type: 'Image',
-                    dimensions: `${(fileDetails as ImageFileDetails).width}x${(fileDetails as ImageFileDetails).height}`,
-                    aspectRatio: (fileDetails as ImageFileDetails).aspectRatio
-                },
-                ...(fileDetails as VideoFileDetails).duration && {
-                    type: 'Video',
-                    duration: `${Math.round((fileDetails as VideoFileDetails).duration)}s`,
-                    dimensions: `${(fileDetails as VideoFileDetails).width}x${(fileDetails as VideoFileDetails).height}`,
-                    aspectRatio: (fileDetails as VideoFileDetails).aspectRatio
-                },
-                ...(fileDetails as DocumentFileDetails).pageCount && {
-                    type: 'Document',
-                    pageCount: (fileDetails as DocumentFileDetails).pageCount
-                }
-            });
-
+            console.log('Processed File Detailss :', fileDetails);
+    
             const timestamp = Date.now();
             const fileName = `${timestamp}-${file.name}`;
-            const storagePath = `temp/${fileName}`;
-
-            const storageRef = ref(storage, storagePath);
-
-            const stringifiedMetadata: { [key: string]: string } = {};
-            Object.entries(fileDetails).forEach(([key, value]) => {
-                stringifiedMetadata[key] = String(value);
-            });
-
-            const metadata = {
-                contentType: file.type,
-                customMetadata: stringifiedMetadata
-            };
-
-            await uploadBytes(storageRef, file, metadata);
-            const downloadUrl = await getDownloadURL(storageRef);
-
-            // toast({
-            //     title: "File Uploaded",
-            //     description: `${file.name} has been successfully attached.`,
-            //     className: "bg-green-500 font-poppins",
-            //     action: <ToastAction altText="Okay">Okay</ToastAction>,
-            // });
-
+            const storagePath = `temp/${fileName}`; 
+    
+            const { data: uploadData, error: uploadError } = await supabase.storage
+                .from('chat-attachments') 
+                .upload(storagePath, file, {
+                    cacheControl: '3600',
+                    contentType: file.type,
+                    upsert: false
+                });
+    
+            if (uploadError) throw uploadError;
+    
+            const { data: { publicUrl } } = supabase.storage
+                .from('chat-attachments')
+                .getPublicUrl(storagePath);
+    
             const result = Object.assign(file, {
-                downloadUrl,
+                downloadUrl: publicUrl,
                 storagePath,
                 fileDetails
-            });
-
-            console.log('Final Result:', result);
+            }) as UploadedFile;
+    
+            console.log('Final Results:', result);
             console.groupEnd();
             return result;
-
+    
         } catch (error) {
             console.error("Upload Error:", error);
             console.groupEnd();
@@ -177,7 +151,7 @@ export const ChatForm: React.FC<ChatFormProps> = ({
         try {
             const uploadedFiles = await Promise.all(
                 files.map(async (file) => {
-                    const result = await uploadToFirebase(file);
+                    const result = await uploadToSupabase(file);
                     return result;
                 })
             );
@@ -200,20 +174,17 @@ export const ChatForm: React.FC<ChatFormProps> = ({
 
     const removeFile = async (index: number) => {
         const fileToRemove = attachedFiles[index];
-
+    
         if (fileToRemove && fileToRemove.storagePath) {
             try {
-                const storageRef = ref(storage, fileToRemove.storagePath);
-                await deleteObject(storageRef);
-
+                const { error } = await supabase.storage
+                    .from('chat-attachments')
+                    .remove([fileToRemove.storagePath]);
+    
+                if (error) throw error;
+    
                 setAttachedFiles((prevFiles) => prevFiles.filter((_, i) => i !== index));
-
-                // toast({
-                //     title: "File Removed",
-                //     description: `${fileToRemove.name} has been removed.`,
-                //     className: "font-poppins",
-                //     action: <ToastAction altText="Okay">Okay</ToastAction>,
-                // });
+    
             } catch (error) {
                 console.error("Error removing file:", error);
                 toast({
@@ -247,7 +218,7 @@ export const ChatForm: React.FC<ChatFormProps> = ({
         try {
             const uploadedFiles = await Promise.all(
                 files.map(async (file) => {
-                    const result = await uploadToFirebase(file);
+                    const result = await uploadToSupabase(file);
                     return result;
                 })
             );
@@ -343,7 +314,7 @@ export const ChatForm: React.FC<ChatFormProps> = ({
                     }
 
                     const file = new File([blob], `screenshot-${Date.now()}.png`, { type: 'image/png' });
-                    const uploadedFile = await uploadToFirebase(file);
+                    const uploadedFile = await uploadToSupabase(file);
                     if (uploadedFile) {
                         setAttachedFiles(prevFiles => [...prevFiles, uploadedFile]);
                         setIsScreenshotting(false);

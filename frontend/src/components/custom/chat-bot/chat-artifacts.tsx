@@ -32,7 +32,6 @@ const ChatArtifacts = ({
     const [artifactList, setArtifactList] = useState<ArtifactItem[]>([]);
     const processedArtifacts = useRef(new Set<string>());
 
-    // Handle initial loading state
     useEffect(() => {
         const timer = setTimeout(() => {
             setLoading(false);
@@ -41,20 +40,16 @@ const ChatArtifacts = ({
         return () => clearTimeout(timer);
     }, []);
 
-    // Process new artifacts with duplicate prevention
     useEffect(() => {
         if (!artifactsData) return;
 
-        // Generate a unique key for the artifact based on its content
         const artifactKey = JSON.stringify(artifactsData);
 
-        // Check if we've already processed this exact artifact
         if (!processedArtifacts.current.has(artifactKey)) {
             const newArtifact = processNewArtifact(artifactsData);
 
             if (newArtifact) {
                 setArtifactList(prevArtifacts => {
-                    // Double-check for duplicates based on content and ID
                     if (!isArtifactDuplicate(newArtifact, prevArtifacts)) {
                         processedArtifacts.current.add(artifactKey);
                         return [newArtifact, ...prevArtifacts];

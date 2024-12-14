@@ -229,24 +229,23 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
 
   const handleLogout = () => {
     const { setProfile, setUserName } = useProfileStore.getState();
-
+  
+    // Clear user profile data
     setProfile(null);
     setUserName("");
     setColor('zinc');
     setMode('light');
-
+  
+    // Clear localStorage
     localStorage.removeItem('user-profile-storage');
-
+    localStorage.removeItem('currentConversationId'); 
+    localStorage.removeItem('token');
+  
     removeThemeClasses(document.documentElement);
     document.documentElement.classList.add(DEFAULT_THEME.color.toLowerCase());
     document.documentElement.classList.add(DEFAULT_THEME.mode.toLowerCase());  
-
+  
     router.push("/login");
-  };
-
-  const resetConversation = () => {
-    localStorage.removeItem('currentConversationId');
-    // setMessages([]);
   };
 
   return (
@@ -273,7 +272,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
               <AnimatedShinyText
                 className="inline-flex items-center justify-center mr-3 transition ease-out hover:text-neutral-600 hover:duration-300 hover:dark:text-neutral-400 cursor-pointer"
               >
-                <span className="text-xl font-bold" onClick={resetConversation}>✨ Chat.</span>
+                <span className="text-xl font-bold">✨ Chat.</span>
               </AnimatedShinyText>
             )}
 

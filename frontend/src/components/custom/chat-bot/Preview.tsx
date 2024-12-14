@@ -6,8 +6,6 @@ import { Button } from "./../../ui/button";
 import { Dialog, DialogClose, DialogContent } from "./../../ui/dialog";
 import { SpokeSpinner } from '@/components/ui/spinner';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { getBlob, ref } from 'firebase/storage';
-import { storage } from '@/lib/firebase';
 
 interface UploadedFile extends File {
   downloadUrl?: string;

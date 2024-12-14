@@ -1,134 +1,123 @@
 # app/services/attachment_service.py
 
-import os
-import hashlib
-import aiofiles
+import logging
 from fastapi import UploadFile, HTTPException
 from typing import List, Dict
-import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from sqlalchemy.orm import Session
 from app.models.chat import Attachment
-import aiohttp
-from firebase_admin import storage
-import firebase_admin
-from firebase_admin import credentials
-import shutil
-import requests
+from app.config import settings
+from supabase import create_client, Client
 
 logger = logging.getLogger(__name__)
 
 class AttachmentService:
-    def __init__(self, db: Session, upload_dir: str = "uploads"):
+    def __init__(self, db: Session):
         self.db = db
-        self.upload_dir = upload_dir
-        self.firebase_bucket = storage.bucket()
-        os.makedirs(upload_dir, exist_ok=True)
+        self.supabase: Client = create_client(
+            settings.SUPABASE.URL,
+            settings.SUPABASE.KEY
+        )
+        self.bucket_name = 'chat-attachments'
 
-    async def move_to_permanent_storage(self, temp_path: str, user_id: str) -> Dict[str, str]:
-        """Move file to permanent storage while preserving temp file"""
+    async def upload_to_permanent(self, file: UploadFile) -> Dict[str, str]:
+        """Upload file directly to permanent storage in Supabase"""
         try:
-            # Generate permanent path while keeping temp file
-            permanent_path = f"permanent/{os.path.basename(temp_path)}"
-            temp_blob = self.firebase_bucket.blob(temp_path)
-            permanent_blob = self.firebase_bucket.blob(permanent_path)
+            # Generate storage path
+            timestamp = int(datetime.now().timestamp() * 1000)
+            storage_path = f"permanent/{timestamp}-{file.filename}"
             
-            # Load temp blob metadata
-            temp_blob.reload()
+            # Read file content
+            file_content = await file.read()
             
-            # Copy to permanent location without deleting temp
-            self.firebase_bucket.copy_blob(temp_blob, self.firebase_bucket, permanent_path)
-            
-            # Add metadata to track when temp file was copied
-            temp_blob.metadata = {
-                'copied_to_permanent': 'true',
-                'copy_timestamp': datetime.utcnow().isoformat()
-            }
-            temp_blob.patch()
-            
-            logger.info(f"File copied to permanent storage: {permanent_path}")
-            logger.info(f"Temp file preserved at: {temp_path}")
-            
+            # Upload to Supabase
+            response = self.supabase.storage \
+                .from_(self.bucket_name) \
+                .upload(
+                    path=storage_path,
+                    file=file_content,
+                    file_options={"content-type": file.content_type}
+                )
+
+            if hasattr(response, 'error') and response.error is not None:
+                raise Exception(f"Upload error: {response.error}")
+
+            # Get the public URL
+            public_url = self.supabase.storage \
+                .from_(self.bucket_name) \
+                .get_public_url(storage_path)
+
+            # Seek back to start of file for any future operations
+            await file.seek(0)
+
             return {
-                "storage_path": permanent_path,
-                "download_url": permanent_blob.public_url
+                "storage_path": storage_path,
+                "download_url": public_url
             }
-            
+
         except Exception as e:
-            logger.error(f"Storage error: {str(e)}")
+            logger.error(f"Upload error: {str(e)}")
             raise
 
-    async def cleanup_old_temp_files(self):
-        """Cleanup temp files older than 24 hours that have been copied to permanent storage"""
-        try:
-            blobs = self.firebase_bucket.list_blobs(prefix='temp/')
-            current_time = datetime.utcnow()
-            
-            for blob in blobs:
-                # Skip if not a temp file or missing metadata
-                if not blob.metadata or 'copied_to_permanent' not in blob.metadata:
-                    continue
-                
-                # Parse the copy timestamp
-                copy_time = datetime.fromisoformat(blob.metadata['copy_timestamp'])
-                time_difference = current_time - copy_time
-                
-                # Delete if older than 24 hours and has been copied
-                if time_difference > timedelta(hours=24):
-                    try:
-                        blob.delete()
-                        logger.info(f"Deleted old temp file: {blob.name}")
-                    except Exception as e:
-                        logger.error(f"Failed to delete old temp file {blob.name}: {str(e)}")
-                        
-        except Exception as e:
-            logger.error(f"Error during temp file cleanup: {str(e)}")
-
     async def create_attachment(self, file: UploadFile, message_id: int, user_id: str) -> Attachment:
-        """Create attachment with temp file preservation"""
+        """Create attachment record with direct permanent storage"""
         try:
-            # Move to permanent storage while preserving temp
-            firebase_data = await self.move_to_permanent_storage(
-                file.metadata['storagePath'],
-                user_id
-            )
+            # Upload directly to permanent storage
+            uploaded_file = await self.upload_to_permanent(file)
             
-            # Schedule cleanup of old temp files
-            await self.cleanup_old_temp_files()
-            
+            # Create attachment record
             attachment = Attachment(
                 message_id=message_id,
                 file_type=file.content_type,
-                file_path=firebase_data['storage_path'],
+                file_path=uploaded_file['storage_path'],
                 original_filename=file.filename,
                 file_size=file.size,
                 mime_type=file.content_type,
                 attachment_metadata={
-                    "firebase_storage_path": firebase_data['storage_path'],
-                    "firebase_download_url": firebase_data['download_url'],
-                    "temp_path": file.metadata['storagePath'],  # Store temp path reference
-                    "temp_creation_time": datetime.utcnow().isoformat()
+                    "storage_path": uploaded_file['storage_path'],
+                    "download_url": uploaded_file['download_url'],
+                    "uploaded_at": datetime.utcnow().isoformat(),
+                    "uploader_id": user_id
                 }
             )
             
             self.db.add(attachment)
             self.db.commit()
+            self.db.refresh(attachment)
+            
+            logger.info(f"Successfully created permanent attachment: {file.filename}")
             return attachment
             
         except Exception as e:
+            self.db.rollback()
             logger.error(f"Error creating attachment: {str(e)}")
             raise
 
     async def process_attachments(self, files: List[UploadFile], message_id: int, user_id: str) -> List[Attachment]:
-        """Process multiple file attachments"""
+        """Process multiple file attachments with direct permanent storage"""
         attachments = []
         for file in files:
             try:
                 attachment = await self.create_attachment(file, message_id, user_id)
                 attachments.append(attachment)
                 logger.info(f"Successfully processed attachment: {file.filename}")
-                logger.info(f"Temp file location: {file.metadata['storagePath']}")
             except Exception as e:
                 logger.error(f"Error processing attachment {file.filename}: {str(e)}")
                 continue
         return attachments
+
+    async def delete_attachment(self, file_path: str) -> bool:
+        """Delete an attachment from storage"""
+        try:
+            response = self.supabase.storage \
+                .from_(self.bucket_name) \
+                .remove([file_path])
+
+            if hasattr(response, 'error') and response.error is not None:
+                raise Exception(f"Delete error: {response.error}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Delete error: {str(e)}")
+            return False

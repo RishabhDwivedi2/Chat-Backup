@@ -28,7 +28,6 @@ if 'JWT' not in settings:
         'ACCESS_TOKEN_EXPIRE_MINUTES': 1440
     }
 
-# Convert SECRET_KEY to string if it exists
 if 'SECRET_KEY' in settings.JWT:
     settings.JWT.SECRET_KEY = str(settings.JWT.SECRET_KEY)
     logger.debug(f"JWT SECRET_KEY set as string. Type: {type(settings.JWT.SECRET_KEY)}")
@@ -43,13 +42,18 @@ if 'DATABASE' not in settings:
 settings['DATABASE'].update(env_settings.get('DATABASE', {}))
 settings['DATABASE'].update(secret_settings.get('DATABASE', {}))
 
-db_host = settings.DATABASE.HOST
-db_port = settings.DATABASE.PORT
-db_name = settings.DATABASE.NAME
-db_user = settings.DATABASE.USER_NAME
-db_password = secret_settings.DATABASE.USER_PASSWORD
+# Use Supabase
+if 'SUPABASE' not in settings:
+    settings['SUPABASE'] = {}
 
-settings.DATABASE.URL = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+settings['SUPABASE'].update(env_settings.get('SUPABASE', {}))
+settings['SUPABASE'].update(secret_settings.get('SUPABASE', {}))
 
-logger.debug(f"JWT Algorithm: {settings.JWT.ALGORITHM}")
-logger.debug(f"JWT Token expiration: {settings.JWT.ACCESS_TOKEN_EXPIRE_MINUTES} minutes")
+DATABASE_URL = (
+    f"postgresql://postgres.onuaibjrlmngvqwandcp:{settings.SUPABASE.DB_PASSWORD}"
+    "@aws-0-ap-south-1.pooler.supabase.com:6543/postgres"
+    "?sslmode=require"
+)
+settings.DATABASE.URL = DATABASE_URL
+
+logger.info(f"Full Database URL: {settings.DATABASE.URL}")

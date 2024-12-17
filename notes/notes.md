@@ -19,7 +19,6 @@ PWD - WEBFRIES@!@#
 https://meet.google.com/akr-cpgx-pwv
 
 
-
 //Firebase & developer1
 
 Account Details:
@@ -27,19 +26,7 @@ Account Details:
 Email : developer1@deltabots.ai
 Pwd : Bhu87ygv123a#
 
-
-
-//Gcloud CLI Login
-gcloud auth application-default login
-
-
-//My Meeting Link
-
-https://meet.google.com/hub-iayu-bgy
-
 -------------------------------------------------------------------------------------------------------------------------
-
-
 
 
 Rchat

@@ -15,7 +15,8 @@ import Speech from './chat-form-interface/speech-to-speech-interface';
 import { validateFile, processFile } from '@/utils/fileHandlers';
 import { ImageFileDetails, VideoFileDetails, DocumentFileDetails } from '@/types/file';
 import { pasteValidator, PasteValidator } from '@/utils/pasteValidator';
-import { supabase } from '@/lib/supabase';
+// import { supabase } from '@/lib/supabase';
+import { uploadFile, deleteFile } from '@/lib/minio';
 
 interface UploadedFile extends File {
     downloadUrl: string;
@@ -54,7 +55,7 @@ export const ChatForm: React.FC<ChatFormProps> = ({
         const validationResult = await pasteValidator.validatePaste(
             e.clipboardData,
             attachedFiles.length,
-            uploadToSupabase
+            uploadToMinio
         );
     
         if (!validationResult.isValid && validationResult.shouldCreateFile) {
@@ -62,7 +63,7 @@ export const ChatForm: React.FC<ChatFormProps> = ({
             setIsUploading(true); 
             
             if (validationResult.processedFile) {
-                const uploadedFile = await uploadToSupabase(validationResult.processedFile);
+                const uploadedFile = await uploadToMinio(validationResult.processedFile);
                 if (uploadedFile) {
                     setAttachedFiles(prev => [...prev, uploadedFile]);
                 }
@@ -71,11 +72,10 @@ export const ChatForm: React.FC<ChatFormProps> = ({
         }
     };
 
-    const uploadToSupabase = async (file: File): Promise<UploadedFile | null> => {
+    const uploadToMinio = async (file: File): Promise<UploadedFile | null> => {
         const validationError = validateFile(file);
         if (validationError) {
             console.error('Validation Failed:', validationError);
-            console.groupEnd();
             toast({
                 title: "Invalid File",
                 description: validationError,
@@ -88,39 +88,19 @@ export const ChatForm: React.FC<ChatFormProps> = ({
     
         try {
             const fileDetails = await processFile(file);
-            console.log('Processed File Detailss :', fileDetails);
-    
-            const timestamp = Date.now();
-            const fileName = `${timestamp}-${file.name}`;
-            const storagePath = `temp/${fileName}`; 
-    
-            const { data: uploadData, error: uploadError } = await supabase.storage
-                .from('chat-attachments') 
-                .upload(storagePath, file, {
-                    cacheControl: '3600',
-                    contentType: file.type,
-                    upsert: false
-                });
-    
-            if (uploadError) throw uploadError;
-    
-            const { data: { publicUrl } } = supabase.storage
-                .from('chat-attachments')
-                .getPublicUrl(storagePath);
+            const { downloadUrl, storagePath } = await uploadFile('temp', file);
     
             const result = Object.assign(file, {
-                downloadUrl: publicUrl,
+                downloadUrl,
                 storagePath,
                 fileDetails
             }) as UploadedFile;
     
-            console.log('Final Results:', result);
-            console.groupEnd();
+            console.log('Final Upload Result:', result);
             return result;
     
         } catch (error) {
             console.error("Upload Error:", error);
-            console.groupEnd();
             toast({
                 title: "Upload Failed",
                 description: `Failed to upload ${file.name}. Please try again.`,
@@ -129,6 +109,27 @@ export const ChatForm: React.FC<ChatFormProps> = ({
                 action: <ToastAction altText="Okay">Okay</ToastAction>,
             });
             return null;
+        }
+    };
+
+    const removeFile = async (index: number) => {
+        const fileToRemove = attachedFiles[index];
+    
+        if (fileToRemove && fileToRemove.storagePath) {
+            try {
+                await deleteFile('temp', fileToRemove.storagePath);
+                setAttachedFiles((prevFiles) => prevFiles.filter((_, i) => i !== index));
+    
+            } catch (error) {
+                console.error("Error removing file:", error);
+                toast({
+                    title: "Error",
+                    description: "Failed to remove file. Please try again.",
+                    variant: "destructive",
+                    className: "font-poppins",
+                    action: <ToastAction altText="Okay">Okay</ToastAction>,
+                });
+            }
         }
     };
 
@@ -151,7 +152,7 @@ export const ChatForm: React.FC<ChatFormProps> = ({
         try {
             const uploadedFiles = await Promise.all(
                 files.map(async (file) => {
-                    const result = await uploadToSupabase(file);
+                    const result = await uploadToMinio(file);
                     return result;
                 })
             );
@@ -169,32 +170,6 @@ export const ChatForm: React.FC<ChatFormProps> = ({
             });
         } finally {
             setIsUploading(false);
-        }
-    };
-
-    const removeFile = async (index: number) => {
-        const fileToRemove = attachedFiles[index];
-    
-        if (fileToRemove && fileToRemove.storagePath) {
-            try {
-                const { error } = await supabase.storage
-                    .from('chat-attachments')
-                    .remove([fileToRemove.storagePath]);
-    
-                if (error) throw error;
-    
-                setAttachedFiles((prevFiles) => prevFiles.filter((_, i) => i !== index));
-    
-            } catch (error) {
-                console.error("Error removing file:", error);
-                toast({
-                    title: "Error",
-                    description: "Failed to remove file. Please try again.",
-                    variant: "destructive",
-                    className: "font-poppins",
-                    action: <ToastAction altText="Okay">Okay</ToastAction>,
-                });
-            }
         }
     };
 
@@ -218,7 +193,7 @@ export const ChatForm: React.FC<ChatFormProps> = ({
         try {
             const uploadedFiles = await Promise.all(
                 files.map(async (file) => {
-                    const result = await uploadToSupabase(file);
+                    const result = await uploadToMinio(file);
                     return result;
                 })
             );
@@ -314,7 +289,7 @@ export const ChatForm: React.FC<ChatFormProps> = ({
                     }
 
                     const file = new File([blob], `screenshot-${Date.now()}.png`, { type: 'image/png' });
-                    const uploadedFile = await uploadToSupabase(file);
+                    const uploadedFile = await uploadToMinio(file);
                     if (uploadedFile) {
                         setAttachedFiles(prevFiles => [...prevFiles, uploadedFile]);
                         setIsScreenshotting(false);

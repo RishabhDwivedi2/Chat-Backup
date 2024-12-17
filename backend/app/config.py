@@ -20,7 +20,6 @@ settings.update(base_settings.as_dict())
 settings.update(env_settings.as_dict())
 settings.update(secret_settings.as_dict())
 
-# Ensure JWT settings are available
 if 'JWT' not in settings:
     settings['JWT'] = {
         'SECRET_KEY': settings.get('SECRET_KEY', {}).get('SECRET_KEY'),
@@ -42,18 +41,11 @@ if 'DATABASE' not in settings:
 settings['DATABASE'].update(env_settings.get('DATABASE', {}))
 settings['DATABASE'].update(secret_settings.get('DATABASE', {}))
 
-# Use Supabase
-if 'SUPABASE' not in settings:
-    settings['SUPABASE'] = {}
-
-settings['SUPABASE'].update(env_settings.get('SUPABASE', {}))
-settings['SUPABASE'].update(secret_settings.get('SUPABASE', {}))
-
+# Construct PostgreSQL URL
 DATABASE_URL = (
-    f"postgresql://postgres.onuaibjrlmngvqwandcp:{settings.SUPABASE.DB_PASSWORD}"
-    "@aws-0-ap-south-1.pooler.supabase.com:6543/postgres"
-    "?sslmode=require"
+    f"postgresql://{settings.DATABASE.USER_NAME}:{settings.DATABASE.PASSWORD}"
+    f"@{settings.DATABASE.HOST}:{settings.DATABASE.PORT}/{settings.DATABASE.NAME}"
 )
 settings.DATABASE.URL = DATABASE_URL
 
-logger.info(f"Full Database URL: {settings.DATABASE.URL}")
+logger.info(f"Database URL configured for local PostgreSQL")

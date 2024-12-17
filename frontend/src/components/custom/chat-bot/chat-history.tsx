@@ -30,12 +30,12 @@ interface ChatHistoryProps {
     isCoreRunning: boolean;
     onBackToWebsite: () => void;
     isVisible: boolean;
-    onConversationSelect: (messages: any[], conversationId: number) => void; 
+    onConversationSelect: (messages: any[], conversationId: number) => void;
     collections: ChatCollection[];
     isLoading: boolean;
     error: string | null;
     onNewChat: () => void;
-    onRefreshHistory: () => Promise<void>; 
+    onRefreshHistory: () => Promise<void>;
     activeConversationId?: number | null;
 }
 
@@ -96,36 +96,34 @@ export default function ChatHistory({
             }
     
             const data = await response.json();
+            console.log("Raw attachment data:", data.messages.map((m: { attachments: any[] }) => m.attachments));
+    
             const formattedMessages = data.messages.map((msg: any) => {
                 const formattedFiles = msg.attachments?.map((attachment: any) => {
-                  const downloadUrl = attachment.attachment_metadata?.download_url; // Updated line
-                  if (!downloadUrl) {
-                    console.warn('Attachment missing download URL:', attachment);
-                    return null;
-                  }
-              
-                  return {
-                    name: attachment.original_filename,
-                    type: attachment.file_type,
-                    size: attachment.file_size,
-                    downloadUrl: downloadUrl,
-                    storagePath: attachment.attachment_metadata?.storage_path,
-                    fileDetails: attachment
-                  };
+                    // Get the download URL from attachment metadata or construct it
+                    const downloadUrl = `http://localhost:9000/permanent/${attachment.file_path}`;
+    
+                    return {
+                        name: attachment.original_filename,
+                        type: attachment.mime_type,
+                        size: attachment.file_size,
+                        downloadUrl: downloadUrl,
+                        storagePath: attachment.file_path,
+                        fileDetails: attachment
+                    };
                 }).filter(Boolean);
-              
+    
                 return {
-                  role: msg.role,
-                  content: msg.content,
-                  ...(formattedFiles?.length > 0 && { files: formattedFiles }),
-                  ...(msg.artifacts?.length > 0 && {
-                    component: msg.artifacts[0].component_type,
-                    data: msg.artifacts[0].data,
-                    artifactId: msg.artifacts[0].id
-                  })
+                    role: msg.role,
+                    content: msg.content,
+                    ...(formattedFiles?.length > 0 && { files: formattedFiles }),
+                    ...(msg.artifacts?.length > 0 && {
+                        component: msg.artifacts[0].component_type,
+                        data: msg.artifacts[0].data,
+                        artifactId: msg.artifacts[0].id
+                    })
                 };
-              });
-              
+            });
     
             onConversationSelect(formattedMessages, conversationId);
         } catch (error) {
@@ -141,10 +139,10 @@ export default function ChatHistory({
 
     const groupCollectionsByDate = (collections: ChatCollection[]) => {
         const today = new Date();
-        
+
         return collections.reduce((groups, chat) => {
             const date = new Date(chat.created_at);
-            
+
             if (isSameDay(date, today)) {
                 if (!groups['Today']) groups['Today'] = [];
                 groups['Today'].push(chat);
@@ -161,7 +159,7 @@ export default function ChatHistory({
                 if (!groups['Older']) groups['Older'] = [];
                 groups['Older'].push(chat);
             }
-            
+
             return groups;
         }, {} as Record<string, ChatCollection[]>);
     };
@@ -185,7 +183,7 @@ export default function ChatHistory({
         <AnimatePresence>
             {isVisible && (
                 <motion.div
-                className={`
+                    className={`
                     ${isMobile ? 'fixed top-0 left-0 bottom-0 w-[80%] max-w-[300px] z-50' : 'h-full border z-40 flex flex-col'}
                     bg-background text-foreground 
                     ${!isVisible ? 'hidden' : ''}

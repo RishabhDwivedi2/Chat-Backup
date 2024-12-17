@@ -75,12 +75,25 @@ const ImagePreview: React.FC<ImagePreviewProps> = ({ file }) => {
     const [imageError, setImageError] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
 
+    console.log("File object received:", file);
+    console.log("Download URL:", file.downloadUrl);
+    console.log("Storage path:", file.storagePath);
+
+    // Function to get correct URL for MinIO
+    const getImageUrl = (url: string) => {
+        // Always use the permanent bucket
+        if (url.includes('/chat-attachments/')) {
+            return url.replace('/chat-attachments/', '/permanent/');
+        }
+        return url;
+    };
+
     const handleImageLoad = () => {
         setIsLoading(false);
         setImageError(false);
     };
 
-    const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    const handleImageError = () => {
         console.error('Error loading image:', file.name);
         setImageError(true);
         setIsLoading(false);
@@ -90,7 +103,8 @@ const ImagePreview: React.FC<ImagePreviewProps> = ({ file }) => {
         e.stopPropagation();
         try {
             setIsLoading(true);
-            const response = await fetch(file.downloadUrl);
+            const imageUrl = getImageUrl(file.downloadUrl);
+            const response = await fetch(imageUrl);
 
             if (!response.ok) throw new Error('Download failed');
 
@@ -110,6 +124,8 @@ const ImagePreview: React.FC<ImagePreviewProps> = ({ file }) => {
         }
     };
 
+    const imageUrl = getImageUrl(file.downloadUrl);
+
     return (
         <>
             <div className="relative cursor-pointer group" onClick={() => setIsOpen(true)}>
@@ -121,7 +137,7 @@ const ImagePreview: React.FC<ImagePreviewProps> = ({ file }) => {
                 {!imageError ? (
                     <>
                         <img
-                            src={file.downloadUrl}
+                            src={imageUrl} 
                             alt={file.name}
                             className={`w-20 h-20 object-cover rounded-md transition-opacity duration-200 ${isLoading ? 'opacity-0' : 'opacity-100'
                                 }`}

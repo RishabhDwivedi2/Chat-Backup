@@ -18,7 +18,7 @@ from app.cache.token_cache import TokenVerifier
 from app.middleware.session_middleware import SessionMiddleware 
 from firebase_admin import storage
 from contextlib import asynccontextmanager
-from supabase import create_client, Client
+# from supabase import create_client, Client
 from app.utils.schema_generator import generate_schema
 from app.models.user import User
 from app.models.chat import ChatCollection, Conversation, Message
@@ -29,10 +29,10 @@ logger = logging.getLogger(__name__)
 bearer_scheme = HTTPBearer()  
 token_verifier = TokenVerifier()
    
-supabase: Client = create_client(
-    settings.SUPABASE.URL,
-    settings.SUPABASE.KEY
-)
+# supabase: Client = create_client(
+#     settings.SUPABASE.URL,
+#     settings.SUPABASE.KEY
+# )
 
 app = FastAPI(
     title=settings.PROJECT.NAME,
@@ -75,7 +75,7 @@ PUBLIC_PATHS = [
     "/api/users/all",
     "/docs",
     "/redoc",
-    "/test-supabase",
+    # "/test-supabase",
 ]
 
 PUBLIC_PREFIXES = ["/docs"]

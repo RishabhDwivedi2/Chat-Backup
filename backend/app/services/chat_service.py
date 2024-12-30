@@ -1,13 +1,12 @@
 # app/services/chat_service.py
 
-
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.models.chat import ChatCollection, Conversation, Message
 from app.schemas.chat import ChatCollectionCreate, ConversationCreate, MessageCreate
 from fastapi import HTTPException
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from app.schemas.chat import AttachmentCreate, Attachment
 
 logger = logging.getLogger(__name__)
@@ -19,17 +18,11 @@ class ChatService:
     def create_chat_collection(self, user_email: str, collection_data: ChatCollectionCreate) -> ChatCollection:
         """Create a new chat collection for a user"""
         try:
-            existing_collection = self.get_collection_by_name(user_email, collection_data.collection_name)
-            if existing_collection:
-                raise HTTPException(
-                    status_code=400,
-                    detail="A collection with this name already exists"
-                )
-
             collection = ChatCollection(
                 user_email=user_email,
                 collection_name=collection_data.collection_name,
                 description=collection_data.description,
+                platform=collection_data.platform,  # Add this line
                 created_at=datetime.utcnow(),
                 last_accessed=datetime.utcnow(),
                 is_active=True,
@@ -40,12 +33,9 @@ class ChatService:
             self.db.commit()
             self.db.refresh(collection)
             
-            logger.info(f"Created new collection '{collection_data.collection_name}' for user {user_email}")
+            logger.info(f"Created new collection '{collection_data.collection_name}' for user {user_email} on platform {collection_data.platform}")
             return collection
-            
-        except HTTPException as he:
-            self.db.rollback()
-            raise he
+                
         except Exception as e:
             self.db.rollback()
             logger.error(f"Error creating chat collection: {str(e)}")
@@ -72,12 +62,10 @@ class ChatService:
     def create_message(self, message_data: MessageCreate) -> Message:
         """Create a new message with artifact flag"""
         try:
-            # Verify conversation exists
             conversation = self.db.query(Conversation).filter_by(id=message_data.conversation_id).first()
             if not conversation:
                 raise HTTPException(status_code=404, detail="Conversation not found")
 
-            # Create message instance with metadata and artifact flag
             message = Message(
                 conversation_id=message_data.conversation_id,
                 role=message_data.role,
@@ -87,13 +75,12 @@ class ChatService:
                 parent_message_id=getattr(message_data, 'parent_message_id', None),
                 is_edited=False,
                 message_metadata=message_data.message_metadata,
-                has_artifact=message_data.has_artifact  # Include artifact flag
+                has_artifact=message_data.has_artifact  
             )
             
             self.db.add(message)
-            self.db.flush()  # Get the message ID
+            self.db.flush() 
             
-            # Update conversation
             conversation.message_count += 1
             conversation.last_message_at = message.created_at
             
@@ -124,7 +111,6 @@ class ChatService:
         try:
             message = self.get_message(message_id)
             
-            # Update metadata
             message.message_metadata = metadata
             message.edited_at = datetime.utcnow()
             
@@ -149,6 +135,7 @@ class ChatService:
                 collection_id=conversation_data.collection_id,
                 title=conversation_data.title,
                 description=conversation_data.description,
+                thread_id=conversation_data.thread_id,  # Add this line
                 created_at=current_time,
                 last_message_at=current_time,
                 status='active',
@@ -166,7 +153,7 @@ class ChatService:
                 self.db.commit()
             
             return conversation
-            
+                
         except Exception as e:
             self.db.rollback()
             logger.error(f"Error creating conversation: {str(e)}")
@@ -243,7 +230,6 @@ class ChatService:
     def create_attachment(self, attachment_data: AttachmentCreate) -> Attachment:
         """Store an attachment in the database."""
         try:
-            # Manually instantiate Attachment with only the required fields
             attachment = Attachment(
                 message_id=attachment_data.message_id,
                 file_type=attachment_data.file_type,
@@ -268,3 +254,33 @@ class ChatService:
                 status_code=500,
                 detail=f"Failed to store attachment: {str(e)}"
             )            
+
+    def get_collection_and_first_conversation(self, user_email: str, subject: str) -> Optional[int]:
+        """
+        Given a subject, see if there's a matching ChatCollection for this user,
+        and if so return the first conversation ID. Else return None.
+        """
+        try:
+            collection = self.db.query(ChatCollection).filter_by(
+                user_email=user_email,
+                collection_name=subject,
+                is_active=True
+            ).first()
+
+            if collection and collection.conversations:
+                # Let's just use the first conversation in that collection
+                return collection.conversations[0].id
+            else:
+                return None
+        except Exception as e:
+            logger.error(f"Error in get_collection_and_first_conversation: {str(e)}")
+            return None
+    
+    def get_conversation_by_thread_id(self, thread_id: str) -> Optional[Conversation]:
+        """Get a conversation by its Gmail thread ID"""
+        try:
+            return self.db.query(Conversation).filter_by(thread_id=thread_id).first()
+        except Exception as e:
+            logger.error(f"Error fetching conversation by thread_id: {str(e)}")
+            return None    
+        

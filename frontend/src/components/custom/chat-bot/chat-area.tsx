@@ -9,26 +9,8 @@ import { ChatFontStyle } from './panel-renderer';
 import { hasMinimumProfileLevel } from '@/utils/hasAccessToPanel';
 import { UserProfile } from '@/config/profileConfig';
 import { Dialog, DialogContent, DialogClose } from "@/components/ui/dialog";
-
-interface Message {
-    role: string;
-    content: string;
-    files?: FileAttachment[];
-    component?: "Table" | "Chart" | "Card" | "Text";
-    data?: any;
-    artifactId?: string;
-    summary?: string;
-    id?: string;
-}
-
-interface FileAttachment {
-    name: string;
-    type: string;
-    size?: number;
-    downloadUrl: string;
-    storagePath?: string;
-    fileDetails?: any;
-}
+import { TypeAnimation } from 'react-type-animation';
+import { Message, FileAttachment } from '@/types/chat';
 
 interface ImagePreviewProps {
     file: FileAttachment;
@@ -45,6 +27,7 @@ interface Artifact {
 
 interface ChatAreaProps {
     messages: Message[];
+    setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
     artifacts: Artifact[];
     handleArtifactClick: (artifactId: string) => void;
     profile: UserProfile;
@@ -75,13 +58,7 @@ const ImagePreview: React.FC<ImagePreviewProps> = ({ file }) => {
     const [imageError, setImageError] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
 
-    console.log("File object received:", file);
-    console.log("Download URL:", file.downloadUrl);
-    console.log("Storage path:", file.storagePath);
-
-    // Function to get correct URL for MinIO
     const getImageUrl = (url: string) => {
-        // Always use the permanent bucket
         if (url.includes('/chat-attachments/')) {
             return url.replace('/chat-attachments/', '/permanent/');
         }
@@ -137,7 +114,7 @@ const ImagePreview: React.FC<ImagePreviewProps> = ({ file }) => {
                 {!imageError ? (
                     <>
                         <img
-                            src={imageUrl} 
+                            src={imageUrl}
                             alt={file.name}
                             className={`w-20 h-20 object-cover rounded-md transition-opacity duration-200 ${isLoading ? 'opacity-0' : 'opacity-100'
                                 }`}
@@ -193,8 +170,43 @@ const ImagePreview: React.FC<ImagePreviewProps> = ({ file }) => {
     );
 };
 
+const ArtifactCard: React.FC<{
+    artifact: Artifact;
+    messageId: string;
+    onClick: () => void;
+}> = ({ artifact, messageId, onClick }) => {
+    if (!artifact) return null;
+
+    return (
+        <Card
+            className="mt-2 mb-2 inline-block cursor-pointer hover:shadow-md transition-shadow"
+            onClick={onClick}
+            style={{ boxShadow: 'none', maxWidth: 'fit-content' }}
+        >
+            <CardContent className="flex items-center gap-4 p-4 border-[hsl(var(--border))]">
+                <div className="p-2 bg-gray-700 rounded">
+                    {artifact.isLoading ? (
+                        <SpokeSpinner />
+                    ) : (
+                        <CodeXml className="w-6 h-6 text-[hsl(var(--primary-foreground))]" />
+                    )}
+                </div>
+                <div className="flex-grow min-w-0">
+                    <p className="text-sm font-medium text-[hsl(var(--foreground))]">
+                        {artifact.title || 'Generated Artifact'}
+                    </p>
+                    <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                        {artifact.isLoading ? 'Generating component...' : 'Click to view component'}
+                    </p>
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
+
 export const ChatArea: React.FC<ChatAreaProps> = ({
     messages,
+    setMessages,
     artifacts,
     handleArtifactClick,
     profile,
@@ -213,59 +225,83 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         }
     };
 
-    const handleArtifactCardClick = (artifact: Artifact) => {
+    const handleArtifactCardClick = async (artifact: Artifact) => {
         if (artifact && artifact.component) {
-            setArtifactsData({
-                component: artifact.component,
-                data: artifact.data,
-                title: artifact.title
-            });
-
-            onShowChatArtifacts(true);
-
-            handleArtifactClick(artifact.id);
+            try {
+                onShowChatArtifacts(true);
+                setArtifactsData({
+                    component: "loading",
+                    data: {
+                        title: artifact.title || 'Loading Artifact...',
+                    }
+                });
+    
+                const token = localStorage.getItem('token');
+                const response = await fetch(`/api/artifacts/${artifact.id}`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+    
+                if (!response.ok) {
+                    throw new Error('Failed to fetch artifact details');
+                }
+    
+                const artifactDetails = await response.json();
+                
+                setArtifactsData({
+                    component: artifactDetails.component_type,
+                    sub_type: artifactDetails.sub_type,
+                    data: {
+                        ...artifactDetails.data,
+                        title: artifactDetails.title,
+                        style: artifactDetails.style
+                    },
+                    title: artifactDetails.title
+                });
+    
+                handleArtifactClick(artifact.id);
+    
+            } catch (error) {
+                console.error('Error fetching artifact details:', error);
+                setArtifactsData({
+                    component: "error",
+                    data: {
+                        title: "Error Loading Artifact",
+                        error: "Failed to load artifact details"
+                    }
+                });
+            }
         }
     };
 
-    const ArtifactCard: React.FC<{
-        artifact: Artifact;
-        messageId: string;
-    }> = ({ artifact, messageId }) => {
-        if (!artifact) return null;
+    const [isInitialLoad, setIsInitialLoad] = useState(true);
 
-        return (
-            <Card
-                className="mt-2 mb-2 inline-block cursor-pointer hover:shadow-md transition-shadow"
-                onClick={() => handleArtifactCardClick(artifact)}
-                style={{ boxShadow: 'none', maxWidth: 'fit-content' }}
-            >
-                <CardContent className="flex items-center gap-4 p-4 border-[hsl(var(--border))]">
-                    <div className="p-2 bg-gray-700 rounded">
-                        {artifact.isLoading ? (
-                            <SpokeSpinner />
-                        ) : (
-                            <CodeXml className="w-6 h-6 text-[hsl(var(--primary-foreground))]" />
-                        )}
-                    </div>
-                    <div className="flex-grow min-w-0">
-                        <p className="text-sm font-medium text-[hsl(var(--foreground))]">
-                            {artifact.title || 'Generated Artifact'}
-                        </p>
-                        <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                            {artifact.isLoading ? 'Generating component...' : 'Click to view component'}
-                        </p>
-                    </div>
-                </CardContent>
-            </Card>
-        );
+    useEffect(() => {
+        setIsInitialLoad(true);
+        const timer = setTimeout(() => {
+            setIsInitialLoad(false);
+        }, 100);
+        return () => clearTimeout(timer);
+    }, []);
+
+    const isLatestAssistantMessage = (message: Message) => {
+        return message.role === "assistant" && message.isNew === true;
     };
 
     const renderMessage = (message: Message, index: number) => {
+        // console.log("Rendering message:", {
+        //     messageIndex: index,
+        //     messageRole: message.role,
+        //     messageContent: message.content,
+        //     artifactFields: {
+        //         component: message.component,
+        //         data: message.data,
+        //         artifactId: message.artifactId
+        //     },
+        //     fullMessage: message
+        // });
         try {
-            const nextMessage = messages[index + 1];
-            const showArtifact = nextMessage && nextMessage.role === 'artifact';
-            const artifactData = showArtifact ? artifacts.find(a => a.id === nextMessage.artifactId) : null;
-
             return (
                 <div key={index} className={`mb-4 ${message.role === "user" ? "text-left" : "text-left"}`}>
                     {message.role === "user" && (
@@ -377,21 +413,50 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                                         </div>
                                     )}
                                     <span className="inline-block">
-                                        {message.content}
+                                        {isLatestAssistantMessage(message) ? (
+                                            <TypeAnimation
+                                                sequence={[
+                                                    message.content,
+                                                    () => {
+                                                        setMessages(prevMessages =>
+                                                            prevMessages.map(msg =>
+                                                                msg.id === message.id ? { ...msg, isNew: false } : msg
+                                                            )
+                                                        );
+                                                    },
+                                                ]}
+                                                cursor={false}
+                                                speed={90}
+                                                wrapper="span"
+                                            />
+                                        ) : (
+                                            <span>{message.content}</span>
+                                        )}
                                     </span>
+                                    {message.component && message.data && message.artifactId && (
+                                        <div className="mt-2 flex flex-wrap gap-2">
+                                            <ArtifactCard
+                                                artifact={{
+                                                    id: message.artifactId!.toString(),
+                                                    title: message.artifactTitle || message.data?.title || 'Generated Artifact', 
+                                                    component: message.component as "Table" | "Chart" | "Card" | "Text",
+                                                    data: message.data,
+                                                    version: 1
+                                                }}
+                                                messageId={message.id}
+                                                onClick={() => handleArtifactCardClick({
+                                                    id: message.artifactId!.toString(),
+                                                    title: message.artifactTitle || message.data?.title || 'Generated Artifact', 
+                                                    component: message.component as "Table" | "Chart" | "Card" | "Text",
+                                                    data: message.data,
+                                                    version: 1
+                                                })}
+                                            />
+                                        </div>
+                                    )}
+
                                 </div>
                             </div>
-
-                            {hasMinimumProfileLevel(profile, 1) && message.component && message.data && (
-                                <div className="mt-4 w-full">
-                                    <ErrorBoundary>
-                                        <DynamicComponent
-                                            component={message.component as "Table" | "Chart" | "Card" | "Text"}
-                                            data={message.data}
-                                        />
-                                    </ErrorBoundary>
-                                </div>
-                            )}
                         </div>
                     )}
 
@@ -453,38 +518,3 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
         return this.props.children;
     }
 }
-
-// const ArtifactCard: React.FC<{ artifact: Artifact; handleArtifactClick: (artifactId: string) => void }> = ({ artifact, handleArtifactClick }) => {
-//     try {
-//         return (
-//             <Card
-//                 className="mt-2 mb-2 inline-block"
-//                 onClick={() => handleArtifactClick(artifact.id)}
-//                 style={{ boxShadow: 'none', maxWidth: 'fit-content' }}
-//             >
-//                 <CardContent className="flex items-center gap-4 p-4 cursor-pointer border-[hsl(var(--border))]">
-//                     <div className="p-2 bg-gray-700 rounded">
-//                         {artifact.isLoading ? (
-//                             <SpokeSpinner />
-//                         ) : (
-//                             <CodeXml className="w-6 h-6 text-[hsl(var(--primary-foreground))]" />
-//                         )}
-//                     </div>
-//                     <div className="flex-grow min-w-0">
-//                         <p className="text-sm font-medium text-[hsl(var(--foreground))]">{artifact.title}</p>
-//                         <p className="text-xs text-[hsl(var(--muted-foreground))] ">
-//                             {artifact.isLoading ? 'Generating component...' : `Click to open component • ${artifact.version} version(s)`}
-//                         </p>
-//                     </div>
-//                 </CardContent>
-//             </Card>
-//         );
-//     } catch (error) {
-//         console.error('Error rendering artifact card:', error);
-//         return (
-//             <div className="p-4 border rounded-md bg-red-50">
-//                 <span className="text-sm text-red-500">Error displaying artifact</span>
-//             </div>
-//         );
-//     }
-// };

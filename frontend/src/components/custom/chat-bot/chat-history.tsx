@@ -37,6 +37,8 @@ interface ChatHistoryProps {
     onNewChat: () => void;
     onRefreshHistory: () => Promise<void>;
     activeConversationId?: number | null;
+    onShowChatArtifacts: React.Dispatch<React.SetStateAction<boolean>>;
+    setArtifactsData: React.Dispatch<React.SetStateAction<any>>;
 }
 
 export default function ChatHistory({
@@ -52,8 +54,25 @@ export default function ChatHistory({
     error,
     onNewChat,
     activeConversationId,
+    onShowChatArtifacts,
+    setArtifactsData
 }: ChatHistoryProps) {
     const [selectedChatId, setSelectedChatId] = useState<number | null>(activeConversationId || null);
+    const [userEmail, setUserEmail] = useState<string>('');
+    const [userInitials, setUserInitials] = useState<string>('');
+
+    useEffect(() => {
+        const email = localStorage.getItem('userEmail') || '';
+        const name = localStorage.getItem('userName') || '';
+        setUserEmail(email);
+
+        const initials = name
+            .split(' ')
+            .map(part => part[0]?.toUpperCase() || '')
+            .join('')
+            .slice(0, 2);
+        setUserInitials(initials);
+    }, []);
 
     useEffect(() => {
         const storedConversationId = localStorage.getItem('currentConversationId');
@@ -90,20 +109,22 @@ export default function ChatHistory({
                     'Authorization': `Bearer ${token}`
                 }
             });
-    
+
+            onShowChatArtifacts(false);
+            setArtifactsData(null);
+
             if (!response.ok) {
                 throw new Error('Failed to fetch conversation');
             }
-    
+
             const data = await response.json();
-            console.log("Raw attachment data:", data.messages.map((m: { attachments: any[] }) => m.attachments));
-    
+            console.log("Raw conversation data:", data);
+
             const formattedMessages = data.messages.map((msg: any) => {
                 const formattedFiles = msg.attachments?.map((attachment: any) => {
-                    // Get the download URL from attachment metadata or construct it
                     const downloadUrl = `http://localhost:9000/permanent/${attachment.file_path}`;
-    
-                    return {
+
+                    const formattedFile = {
                         name: attachment.original_filename,
                         type: attachment.mime_type,
                         size: attachment.file_size,
@@ -111,29 +132,37 @@ export default function ChatHistory({
                         storagePath: attachment.file_path,
                         fileDetails: attachment
                     };
+                    return formattedFile;
                 }).filter(Boolean);
-    
-                return {
+
+                const artifactData = msg.artifacts?.[0];
+                const formattedMessage = {
                     role: msg.role,
                     content: msg.content,
                     ...(formattedFiles?.length > 0 && { files: formattedFiles }),
-                    ...(msg.artifacts?.length > 0 && {
-                        component: msg.artifacts[0].component_type,
-                        data: msg.artifacts[0].data,
-                        artifactId: msg.artifacts[0].id
+                    ...(artifactData && {
+                        component: artifactData.component_type,
+                        data: artifactData.data,
+                        artifactId: artifactData.id,
+                        artifactTitle: artifactData.title || 'Generated Artifact'
                     })
                 };
+
+                return formattedMessage;
             });
-    
+
             onConversationSelect(formattedMessages, conversationId);
         } catch (error) {
             console.error('Error loading conversation:', error);
         }
     };
 
+
     const handleNewChat = () => {
         setSelectedChatId(null);
         localStorage.removeItem('currentConversationId');
+        onShowChatArtifacts(false);
+        setArtifactsData(null);
         onNewChat();
     };
 
@@ -176,8 +205,6 @@ export default function ChatHistory({
         visible: { x: 0 },
         exit: { x: '-100%' }
     };
-
-    const groupedCollections = groupCollectionsByDate(collections);
 
     return (
         <AnimatePresence>
@@ -272,9 +299,9 @@ export default function ChatHistory({
                         <div className="p-2 border-t border-border">
                             <div className="flex items-center py-2 px-3 hover:bg-accent hover:text-accent-foreground rounded-md cursor-pointer">
                                 <div className="w-6 h-6 bg-primary text-primary-foreground rounded-full flex items-center justify-center mr-2">
-                                    <span className="text-xs font-bold">RD</span>
+                                    <span className="text-xs font-bold">{userInitials}</span>
                                 </div>
-                                <span className="text-sm">rishabh.dwivedi@deltabots.ai</span>
+                                <span className="text-sm">{userEmail}</span>
                             </div>
                         </div>
                     </div>

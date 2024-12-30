@@ -45,7 +45,25 @@ settings['DATABASE'].update(secret_settings.get('DATABASE', {}))
 DATABASE_URL = (
     f"postgresql://{settings.DATABASE.USER_NAME}:{settings.DATABASE.PASSWORD}"
     f"@{settings.DATABASE.HOST}:{settings.DATABASE.PORT}/{settings.DATABASE.NAME}"
+    f"?sslmode={settings.DATABASE.get('SSL_MODE', 'disable')}"
 )
 settings.DATABASE.URL = DATABASE_URL
 
 logger.info(f"Database URL configured for local PostgreSQL")
+
+if 'APP' not in settings:
+    settings['APP'] = {
+        'TESTING_MODE': False  # Default to False
+    }
+logger.info(f"Testing Mode Status: {settings.APP.TESTING_MODE}")
+logger.info(f"Test User Email: {settings.APP.TEST_USER_EMAIL}")
+
+# Gmail Configuration
+if 'GMAIL' not in settings:
+    settings['GMAIL'] = {}
+
+settings['GMAIL'].update(env_settings.get('GMAIL', {}))
+settings['GMAIL'].update(secret_settings.get('GMAIL', {}))
+
+
+    

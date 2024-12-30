@@ -20,7 +20,7 @@ from colorama import Fore, Style, init
 PROJECT_ROOT = Path(__file__).parents[2]
 sys.path.append(str(PROJECT_ROOT))
 
-from backend.app.config import settings
+from backend.app.config.constants import settings
 
 # [AI]: Initialize colorama for cross-platform colored terminal output
 init(autoreset=True)

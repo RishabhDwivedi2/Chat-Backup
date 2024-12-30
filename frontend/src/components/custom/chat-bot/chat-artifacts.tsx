@@ -29,8 +29,6 @@ const ChatArtifacts = ({
     profile
 }: ChatArtifactsProps) => {
     const [loading, setLoading] = useState(true);
-    const [artifactList, setArtifactList] = useState<ArtifactItem[]>([]);
-    const processedArtifacts = useRef(new Set<string>());
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -39,26 +37,6 @@ const ChatArtifacts = ({
 
         return () => clearTimeout(timer);
     }, []);
-
-    useEffect(() => {
-        if (!artifactsData) return;
-
-        const artifactKey = JSON.stringify(artifactsData);
-
-        if (!processedArtifacts.current.has(artifactKey)) {
-            const newArtifact = processNewArtifact(artifactsData);
-
-            if (newArtifact) {
-                setArtifactList(prevArtifacts => {
-                    if (!isArtifactDuplicate(newArtifact, prevArtifacts)) {
-                        processedArtifacts.current.add(artifactKey);
-                        return [newArtifact, ...prevArtifacts];
-                    }
-                    return prevArtifacts;
-                });
-            }
-        }
-    }, [artifactsData]);
 
     const handleClose = () => {
         if (['Debtor', 'FI Admin', 'Resohub Admin'].includes(profile)) {
@@ -70,37 +48,61 @@ const ChatArtifacts = ({
     };
 
     const renderContent = () => {
-        if (loading) {
+        if (artifactsData?.component === "loading") {
             return (
-                <div className="flex justify-center items-center h-full">
+                <div className="flex flex-col items-center justify-center h-full">
                     <SpokeSpinner />
+                    <p className="mt-4 text-muted-foreground">{artifactsData.data.title}</p>
                 </div>
             );
         }
-
-        if (artifactList.length === 0) {
+    
+        if (artifactsData?.component === "error") {
+            return (
+                <div className="flex flex-col items-center justify-center h-full text-destructive">
+                    <AlertCircle className="w-8 h-8 mb-2" />
+                    <p className="text-md font-normal">{artifactsData.data.title}</p>
+                    <p className="text-sm text-muted-foreground">{artifactsData.data.error}</p>
+                </div>
+            );
+        }
+    
+        if (!artifactsData) {
             return (
                 <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                    <AlertCircle className="w-12 h-12 mb-4" />
-                    <p className="text-md font-normal">No artifacts found</p>
+                    <p className="text-md font-normal">No artifact selected</p>
                 </div>
             );
         }
-
-        return artifactList.map((artifact, index) => (
-            <div key={`${artifact.component}-${index}-${JSON.stringify(artifact.data)}`}>
+    
+        const constrainedData = {
+            ...artifactsData,
+            data: {
+                ...artifactsData.data,
+                style: {
+                    ...artifactsData.data.style,
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    overflow: 'auto'
+                }
+            }
+        };
+    
+        return (
+            <div className="w-full h-full flex-1 overflow-hidden">
                 <DynamicComponent
-                    component={artifact.component.charAt(0).toUpperCase() + artifact.component.slice(1).toLowerCase() as "Table" | "Chart" | "Card" | "Text"}
-                    data={artifact.data}
-                    sub_type={artifact.sub_type || undefined}
+                    component={artifactsData.component.charAt(0).toUpperCase() + 
+                             artifactsData.component.slice(1).toLowerCase() as "Table" | "Chart" | "Card" | "Text"}
+                    data={constrainedData.data}
+                    sub_type={artifactsData.sub_type}
                 />
             </div>
-        ));
+        );
     };
 
     return (
-        <div className={`h-full flex flex-col rounded-lg border border-border bg-background overflow-hidden sticky top-0`}>
-            <div className="flex items-center justify-between p-4 border-b border-border">
+        <div className="h-full flex flex-col rounded-lg border border-border bg-background">
+            <div className="flex-none flex items-center justify-between p-4 border-b border-border">
                 <div className="flex items-center gap-2">
                     <div className="p-2 bg-red-100 rounded-full">
                         <Layers className="w-5 h-5 text-red-500" />
@@ -115,7 +117,7 @@ const ChatArtifacts = ({
                     <ChevronsRight className="w-5 h-5" />
                 </Button>
             </div>
-            <div className="flex-grow overflow-y-auto overflow-x-hidden relative px-2 py-2">
+            <div className="flex-1 min-h-0 overflow-hidden p-2">
                 {renderContent()}
             </div>
         </div>

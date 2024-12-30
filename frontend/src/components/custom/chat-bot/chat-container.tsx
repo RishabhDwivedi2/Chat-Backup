@@ -12,26 +12,13 @@ import usePanelConfigStore from "@/store/accessPanelConfigStore";
 import { ToastAction } from "@/components/ui/toast";
 import { useToast } from "@/hooks/use-toast";
 import { formatFileSize } from "@/utils/fileHandlers";
+import { Message, FileAttachment } from '@/types/chat';
 
 interface UploadedFile extends File {
     documentId?: number;
     downloadUrl: string;
     storagePath: string;
     fileDetails?: any;
-}
-
-interface Message {
-    id: string;
-    role: string;
-    content: string;
-    files?: UploadedFile[];
-    component?: "Table" | "Chart" | "Card" | "Text";
-    data?: any;
-    artifactId?: string;
-    summary?: string;
-    timestamp?: string;
-    attachments?: any[];
-    metadata?: any;
 }
 
 interface Artifact {
@@ -65,7 +52,7 @@ interface ChatContainerProps {
     isMobile: boolean;
     onNewArtifact: (artifact: Artifact) => void;
     onRefreshHistory: () => Promise<void>;
-    onSetActiveConversation: (conversationId: number) => void; 
+    onSetActiveConversation: (conversationId: number) => void;
 }
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -170,49 +157,30 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         }
     };
 
-    const showTypingEffect = async (text: string, baseTypingSpeed = 1) => {
-        let typedMessage = '';
-        let index = 0;
-
-        return new Promise<void>((resolve) => {
-            const typingStep = () => {
-                if (index < text.length) {
-                    typedMessage += text[index];
-                    index++;
-
-                    setMessages((prevMessages) =>
-                        prevMessages.map((msg, i, arr) =>
-                            i === arr.length - 1 && msg.role === "assistant"
-                                ? { ...msg, content: typedMessage }
-                                : msg
-                        )
-                    );
-                    scrollToBottom();
-                    setTimeout(() => requestAnimationFrame(typingStep), baseTypingSpeed);
-                } else {
-                    resolve();
-                }
-            };
-
-            typingStep();
-        });
+    const populateAssistantMessage = async (text: string) => {
+        setMessages((prevMessages) =>
+            prevMessages.map((msg, i, arr) =>
+                i === arr.length - 1 && msg.role === "assistant"
+                    ? { ...msg, content: text }
+                    : msg
+            )
+        );
+        scrollToBottom();
     };
 
     const handleSendMessage = async (e: React.FormEvent, files: UploadedFile[]) => {
         e.preventDefault();
         if (inputMessage.trim()) {
-
             console.group('Chat Message Submission');
             console.log('Input Message:', inputMessage);
             console.log('Files received by handleSendMessage:', files);
             console.log('Files type:', Object.prototype.toString.call(files));
             console.log('Is array?', Array.isArray(files));
             console.log('Files length:', files?.length);
-
-
+    
             if (files && Array.isArray(files) && files.length > 0) {
                 console.group('Attached Files');
-                files.forEach((file, index) => {  
+                files.forEach((file, index) => {
                     console.log(`File ${index + 1}:`, {
                         name: file.name,
                         type: file.type,
@@ -224,7 +192,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 });
                 console.groupEnd();
             }
-
+    
             const newUserMessage = {
                 id: `msg-${Date.now()}`,
                 role: "user",
@@ -232,10 +200,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 files: files
             };
             setMessages((prevMessages) => [...prevMessages, newUserMessage]);
-
+    
             setInputMessage("");
             setAttachedFiles([]);
-
+    
             const pendingAssistantMessage = {
                 id: `msg-${Date.now()}-pending`,
                 role: "assistant_pending",
@@ -243,9 +211,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             };
             setMessages((prevMessages) => [...prevMessages, pendingAssistantMessage]);
             scrollToBottom();
-
+    
             const analysisId = `analysis-${Date.now()}`;
-
+    
             addAnalysis({
                 id: analysisId,
                 title: `Analysis for "${inputMessage.substring(0, 20)}..."`,
@@ -257,32 +225,31 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 agent1Response: null,
                 agent2Response: null,
             });
-
+    
             try {
                 updateStep(analysisId, 0, 'inProgress');
                 const processingStartTime = performance.now();
-
+    
                 const token = localStorage.getItem('token')?.replace(/bearer/gi, '').trim() || '';
                 const authHeader = token ? `Bearer ${token}` : '';
-
+    
                 const currentConversationId = localStorage.getItem('currentConversationId');
                 const isNewConversation = !currentConversationId;
-
+    
                 const formData = new FormData();
                 formData.append('prompt', inputMessage);
                 formData.append('max_tokens', '100');
                 formData.append('temperature', '0.7');
-
+    
                 if (currentConversationId) {
                     console.log("Continuing conversation:", currentConversationId);
                     formData.append('conversation_id', currentConversationId);
                 } else {
                     console.log("Starting new conversation");
                 }
-
+    
                 if (files && files.length > 0) {
                     console.group('Processing files for FormData:');
-
                     files.forEach((file) => {
                         const attachmentData = {
                             name: file.name,
@@ -292,14 +259,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                             downloadUrl: file.downloadUrl,
                             fileDetails: file.fileDetails
                         };
-
                         console.log('Adding attachment to FormData:', attachmentData);
                         formData.append('attachments', JSON.stringify(attachmentData));
                     });
-
                     console.groupEnd();
                 }
-
+    
                 console.group('Final FormData Contents:');
                 for (const [key, value] of formData.entries()) {
                     if (value instanceof File) {
@@ -313,7 +278,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                     }
                 }
                 console.groupEnd();
-
+    
                 const chatResponse = await fetch('/api/chat', {
                     method: 'POST',
                     headers: {
@@ -321,130 +286,120 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                     },
                     body: formData
                 });
-
+    
                 if (!chatResponse.ok) {
                     throw new Error(`Chat API failed: ${chatResponse.status} ${chatResponse.statusText}`);
                 }
-
+    
                 const processingEndTime = performance.now();
                 updateStep(analysisId, 0, 'completed', `${(processingEndTime - processingStartTime).toFixed(2)}ms`);
-
+    
                 const chatData = await chatResponse.json();
                 const parsedResponse = JSON.parse(chatData.response);
-
+    
                 console.log("Response Conversation ID:", parsedResponse.message.conversation_id);
-
+    
                 if (parsedResponse.message.conversation_id) {
                     const newConversationId = String(parsedResponse.message.conversation_id);
                     localStorage.setItem('currentConversationId', newConversationId);
-
+    
                     if (!currentConversationId) {
                         await onRefreshHistory();
                         onSetActiveConversation(parseInt(newConversationId));
                     }
                 }
-
+    
                 const structuredResponse = parsedResponse.message.structured_response;
                 console.log("Structured Response:", structuredResponse);
-
-                setMessages((prevMessages) =>
-                    prevMessages.map((msg) =>
-                        msg.role === "assistant_pending"
-                            ? {
-                                id: `msg-${chatData.message_id || Date.now()}`,
-                                role: "assistant",
-                                content: "",
-                                messageId: chatData.message_id
-                            }
+    
+                // Create the assistant message with potential artifact information
+                const assistantMessage = {
+                    id: `msg-${chatData.message_id || Date.now()}`,
+                    role: "assistant",
+                    content: "",
+                    messageId: chatData.message_id,
+                    isNew: true
+                };
+    
+                // If there's an artifact, add the artifact information to the message
+                if (structuredResponse.has_artifact) {
+                    // Get title from metadata
+                    const artifactTitle = structuredResponse.metadata?.title ||
+                                        structuredResponse.data?.title ||
+                                        "Generated Visualization";
+    
+                    const artifactInfo = {
+                        artifactId: structuredResponse.artifact_id,
+                        component: structuredResponse.component_type,
+                        data: {
+                            ...structuredResponse.data,
+                            title: artifactTitle // Ensure title is in data object
+                        },
+                        artifactTitle: artifactTitle,
+                        summary: structuredResponse.summary,
+                        metadata: structuredResponse.metadata // Pass through all metadata
+                    };
+                    Object.assign(assistantMessage, artifactInfo);
+                }
+    
+                // Update messages state with the new assistant message
+                setMessages(prevMessages => 
+                    prevMessages.map(msg => 
+                        msg.role === "assistant_pending" 
+                            ? assistantMessage 
                             : msg
                     )
                 );
-
+    
                 updateStep(analysisId, 1, 'inProgress');
                 const responseStartTime = performance.now();
-
-                await showTypingEffect(structuredResponse.content);
-
-                const loadingArtifactId = `artifact-${Date.now()}`;
+    
+                await populateAssistantMessage(structuredResponse.content);
+    
                 const canShowArtifacts = panelConfig[profile as keyof typeof panelConfig].panels.includes("ChatArtifacts");
-
+    
                 if (structuredResponse.has_artifact) {
+                    // Get title from metadata for the artifact
+                    const artifactTitle = structuredResponse.metadata?.title ||
+                                        structuredResponse.data?.title ||
+                                        "Generated Visualization";
+    
+                    const newArtifact = {
+                        id: structuredResponse.artifact_id,
+                        title: artifactTitle,
+                        component: structuredResponse.component_type,
+                        sub_type: structuredResponse.sub_type,
+                        data: {
+                            ...structuredResponse.data,
+                            title: artifactTitle,
+                            metadata: structuredResponse.metadata // Include metadata in data
+                        },
+                        version: 1,
+                        isLoading: false
+                    };
+    
+                    setArtifacts(prevArtifacts => [...prevArtifacts, newArtifact]);
+                    onArtifactsUpdate([...artifacts, newArtifact]);
+    
                     if (canShowArtifacts) {
-                        const loadingArtifact = {
-                            id: loadingArtifactId,
-                            title: structuredResponse.data?.title || "Loading Artifact",
-                            component: structuredResponse.component_type,
-                            data: null,
-                            version: 1,
-                            isLoading: true,
-                        };
-
-                        setArtifacts(prevArtifacts => [...prevArtifacts, loadingArtifact]);
-                        setMessages(prevMessages => [
-                            ...prevMessages,
-                            { id: `msg-${Date.now()}-artifact`, role: 'artifact', artifactId: loadingArtifactId, content: '' }
-                        ]);
-                        scrollToBottom();
-
-                        const newArtifact = {
-                            id: structuredResponse.artifact_id,
+                        onClose();
+                        onNewArtifact(newArtifact);
+                        setArtifactsData({
                             component: structuredResponse.component_type,
                             sub_type: structuredResponse.sub_type,
-                            data: structuredResponse.data,
-                            title: structuredResponse.data?.title || "Generated Visualization",
-                            version: 1,
-                            isLoading: false
-                        };
-
-                        if (canShowArtifacts) {
-                            setArtifacts(prevArtifacts =>
-                                prevArtifacts.map(artifact =>
-                                    artifact.isLoading ? newArtifact : artifact
-                                )
-                            );
-                            setMessages(prevMessages =>
-                                prevMessages.map(msg =>
-                                    msg.role === 'artifact' && msg.artifactId === loadingArtifactId
-                                        ? {
-                                            ...msg,
-                                            artifactId: newArtifact.id,
-                                            component: structuredResponse.component_type,
-                                            data: structuredResponse.data,
-                                            summary: structuredResponse.summary
-                                        }
-                                        : msg
-                                )
-                            );
-                        } else {
-                            setMessages((prevMessages) =>
-                                prevMessages.map((msg, index) =>
-                                    index === prevMessages.length - 1 && msg.role === "assistant"
-                                        ? {
-                                            ...msg,
-                                            component: structuredResponse.component_type,
-                                            data: structuredResponse.data,
-                                            summary: structuredResponse.summary
-                                        }
-                                        : msg
-                                )
-                            );
-                            setArtifacts(prevArtifacts => [...prevArtifacts, newArtifact]);
-                        }
-
-                        const updatedArtifacts = artifacts.filter(a => !a.isLoading).concat(newArtifact);
-                        onArtifactsUpdate(updatedArtifacts);
-
-                        if (canShowArtifacts) {
-                            onClose();
-                            onNewArtifact(newArtifact);
-                            setArtifactsData(newArtifact);
-                        }
+                            data: {
+                                ...structuredResponse.data,
+                                title: artifactTitle,
+                                style: structuredResponse.style,
+                                metadata: structuredResponse.metadata
+                            }
+                        });
                     }
                 }
-
+    
                 const responseEndTime = performance.now();
                 updateStep(analysisId, 1, 'completed', `${(responseEndTime - responseStartTime).toFixed(2)}ms`);
-
+    
             } catch (error) {
                 console.error("Error processing message:", error);
                 setMessages((prevMessages) => [
@@ -477,6 +432,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         <div className={containerClassName}>
             <ChatArea
                 messages={messages}
+                setMessages={setMessages}
                 artifacts={artifacts}
                 handleArtifactClick={handleArtifactClick}
                 profile={profile}

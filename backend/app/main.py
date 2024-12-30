@@ -18,10 +18,10 @@ from app.cache.token_cache import TokenVerifier
 from app.middleware.session_middleware import SessionMiddleware 
 from firebase_admin import storage
 from contextlib import asynccontextmanager
-# from supabase import create_client, Client
 from app.utils.schema_generator import generate_schema
 from app.models.user import User
 from app.models.chat import ChatCollection, Conversation, Message
+from app.routers.gmail_router import router as gmail_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -29,11 +29,6 @@ logger = logging.getLogger(__name__)
 bearer_scheme = HTTPBearer()  
 token_verifier = TokenVerifier()
    
-# supabase: Client = create_client(
-#     settings.SUPABASE.URL,
-#     settings.SUPABASE.KEY
-# )
-
 app = FastAPI(
     title=settings.PROJECT.NAME,
     debug=settings.ENV.DEBUG,
@@ -67,7 +62,7 @@ app.add_middleware(
 
 app.add_middleware(SessionMiddleware)
 
-PUBLIC_PATHS = [
+BASE_PUBLIC_PATHS = [
     "/",
     "/api/users/signup",
     "/openapi.json",
@@ -75,8 +70,22 @@ PUBLIC_PATHS = [
     "/api/users/all",
     "/docs",
     "/redoc",
-    # "/test-supabase",
+    "/auth/google",
+    "/setup-gmail-watch",
+    "/watch-gmail",
+    "/gmail-webhook"
 ]
+
+# Chat router paths that should be public in testing mode
+CHAT_PATHS = [
+    "/api/chat",
+    "/api/chat/",
+    "/api/chat/collections",
+    "/api/chat/conversations/"
+]
+
+# Set PUBLIC_PATHS based on testing mode
+PUBLIC_PATHS = BASE_PUBLIC_PATHS + (CHAT_PATHS if settings.APP['TESTING_MODE'] else [])
 
 PUBLIC_PREFIXES = ["/docs"]
 
@@ -136,9 +145,22 @@ async def get_current_user(
 async def auth_middleware(request: Request, call_next):
     """Authentication middleware with token caching"""
     
-    # Skip auth for public paths
-    if request.url.path in PUBLIC_PATHS or any(request.url.path.startswith(prefix) for prefix in PUBLIC_PREFIXES):
-        logger.debug(f"Skipping auth for public path: {request.url.path}")
+    if settings.APP['TESTING_MODE']:
+        # For testing mode, check if path starts with any of our patterns
+        path = request.url.path
+        is_chat_path = any(path.startswith(pattern) for pattern in CHAT_PATHS)
+        is_base_public = path in BASE_PUBLIC_PATHS
+        
+        if is_chat_path or is_base_public:
+            request.state.user = {"sub": settings.APP['TEST_USER_EMAIL']}
+            return await call_next(request)
+
+    # Check if the path EXACTLY matches any of the public paths
+    if path in BASE_PUBLIC_PATHS:
+        return await call_next(request)
+    
+    # Or if it matches the callback pattern with query parameters
+    if path.startswith("/auth/google/callback"):
         return await call_next(request)
 
     try:
@@ -197,6 +219,7 @@ app.include_router(user_router.router, prefix="/api/users", tags=["users"])
 app.include_router(entries.router, prefix="/api/entries", tags=["entries"])
 app.include_router(chat_router.router, prefix="/api/chat", tags=["chat"]) 
 app.include_router(gateway_router, prefix="/api/gateway", tags=["gateway"])
+app.include_router(gmail_router)  # Remove the prefix="/api/v1"
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):

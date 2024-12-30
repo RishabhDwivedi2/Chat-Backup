@@ -381,6 +381,8 @@ const PanelRenderer: React.FC = () => {
                             activeConversationId={activeConversationId}
                             onConversationSelect={handleConversationSelect}
                             onRefreshHistory={fetchChatHistory}
+                            onShowChatArtifacts={setShowChatArtifacts}
+                            setArtifactsData={setArtifactsData}
                         />
                     </div>
 

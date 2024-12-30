@@ -1,685 +1,436 @@
 # app/services/agents/parent_agent.py
 
-from typing import Dict, Any, Optional, List
-import json
 import logging
+from typing import Dict, Any, Optional
 from app.services.gpt_service import GPTService
+from app.utils.json_handler import JSONHandler
+import json
 
 logger = logging.getLogger(__name__)
 
-class QuickResponder:
-    """Sub-agent responsible for generating quick responses for simple queries."""
-    
-    async def respond(
-        self, 
-        prompt: str, 
-        gpt_service: GPTService,
-        conversation_history: Optional[List[Dict[str, Any]]] = None
-    ) -> Dict[str, Any]:
-        # Format conversation history for context
-        context = ""
-        if conversation_history:
-            recent_messages = conversation_history[-5:]  # Get last 5 messages
-            context = "\n".join([
-                f"{msg.get('role', 'unknown')}: {msg.get('content', '')}"
-                for msg in recent_messages
-            ])
-            
-        quick_response_prompt = f"""
-        Consider the following conversation context and respond to the prompt:
-        
-        CONVERSATION CONTEXT:
-        {context if context else "No prior conversation"}
-        
-        CURRENT PROMPT: "{prompt}"
-        
-        Provide a contextually appropriate response that maintains the conversation flow.
-        """
-        
-        gpt_response = await gpt_service.get_chat_response(
-            prompt=quick_response_prompt,
-            max_tokens=150,
-            temperature=0.5
-        )
-
-        return {
-            "content": gpt_response.strip(),
-            "has_artifact": False,
-            "data": None,
-            "component_type": None,
-            "summary": None
-        }
-
-class ArtifactConstructor:
-    """Sub-agent responsible for constructing artifacts with dynamic, relevant data and styles."""
-    
-    async def construct_artifact(
-        self,
-        component_type: str,
-        chart_type: str,
-        prompt: str,
-        gpt_service: GPTService,
-        conversation_history: Optional[List[Dict[str, Any]]] = None
-    ) -> Dict[str, Any]:
-        """
-        Construct an artifact with context awareness.
-        
-        Args:
-            component_type (str): Type of component to create
-            chart_type (str): Type of chart if component is a chart
-            prompt (str): Current user query
-            gpt_service (GPTService): GPT service instance
-            conversation_history (Optional[List[Dict[str, Any]]]): Previous conversation messages
-        """
-        try:
-            # Format conversation context
-            context_summary = self._format_conversation_history(conversation_history)
-            
-            # Detailed prompt to generate data and metadata dynamically
-            artifact_prompt = f"""
-            Generate metadata for a {chart_type} {component_type} considering the following context:
-
-            QUERY: "{prompt}"
-            CONVERSATION CONTEXT:
-            {context_summary}
-            
-            Generate complete and contextually relevant JSON metadata for the {chart_type} {component_type}, including:
-            1. Title: A descriptive title that reflects both the query and conversation context
-            2. Style: Specific width and height settings
-            3. Labels: Context-appropriate labels
-            4. Data: Relevant numeric values
-            5. Additional metadata that might be useful
-            
-            Note: Use simulated/demo data that makes sense in the conversation context.
-
-            Respond in JSON format:
-            {{
-                "title": "Clear, context-aware title",
-                "style": {{"width": "800px", "height": "500px"}},
-                "labels": ["Label1", "Label2", "Label3", ...],
-                "data": {{
-                    "values": [numeric values],
-                    "metadata": {{
-                        "description": "Context-aware description",
-                        "insights": ["Key insight 1", "Key insight 2"],
-                        "source": "Simulated data for demonstration"
-                    }}
-                }}
-            }}
-            """
-
-            # Get GPT's response
-            gpt_response = await gpt_service.get_chat_response(
-                prompt=artifact_prompt,
-                max_tokens=500,
-                temperature=0.4
-            )
-
-            # Parse GPT's response for artifact metadata
-            try:
-                artifact_data = json.loads(gpt_response)
-            except json.JSONDecodeError:
-                logger.error("Failed to parse GPT response for artifact as JSON")
-                return self._generate_fallback_artifact(component_type, chart_type)
-
-            return {
-                "has_artifact": True,
-                "component_type": component_type,
-                "data": {
-                    "type": chart_type,
-                    "title": artifact_data.get("title", "Generated Chart"),
-                    "style": artifact_data.get("style", {"width": "800px", "height": "500px"}),
-                    "labels": artifact_data.get("labels", ["Label1", "Label2", "Label3"]),
-                    "data": artifact_data.get("data", {
-                        "values": [25, 50, 25],
-                        "metadata": {
-                            "description": "Fallback description",
-                            "insights": ["No specific insights available"],
-                            "source": "Simulated data"
-                        }
-                    })
-                }
-            }
-
-        except Exception as e:
-            logger.error(f"Error constructing artifact: {str(e)}")
-            return self._generate_fallback_artifact(component_type, chart_type)
-
-    def _format_conversation_history(
-        self,
-        conversation_history: Optional[List[Dict[str, Any]]]
-    ) -> str:
-        """Format conversation history for use in prompts."""
-        if not conversation_history:
-            return "No prior conversation"
-            
-        formatted_history = []
-        # Take last 5 messages for recent context
-        for msg in conversation_history[-5:]:
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
-            formatted_history.append(f"{role}: {content}")
-            
-        return "\n".join(formatted_history)
-
-    def _generate_fallback_artifact(
-        self,
-        component_type: str,
-        chart_type: str
-    ) -> Dict[str, Any]:
-        """Generate a fallback artifact when construction fails."""
-        return {
-            "has_artifact": True,
-            "component_type": component_type,
-            "data": {
-                "type": chart_type,
-                "title": f"Generated {chart_type} {component_type}",
-                "style": {"width": "800px", "height": "500px"},
-                "labels": ["Category A", "Category B", "Category C"],
-                "data": {
-                    "values": [33, 33, 34],
-                    "metadata": {
-                        "description": "Fallback visualization",
-                        "insights": ["Data unavailable", "Using placeholder values"],
-                        "source": "Simulated data (fallback)"
-                    }
-                }
-            }
-        }
-
-    async def construct_specific_chart(
-        self,
-        chart_type: str,
-        prompt: str,
-        gpt_service: GPTService,
-        conversation_history: Optional[List[Dict[str, Any]]] = None
-    ) -> Dict[str, Any]:
-        """Construct a specific type of chart with context awareness."""
-        context_summary = self._format_conversation_history(conversation_history)
-        
-        chart_prompt = f"""
-        Generate specific data for a {chart_type} chart based on:
-
-        QUERY: "{prompt}"
-        CONVERSATION CONTEXT:
-        {context_summary}
-        
-        Provide chart data in JSON format specific to {chart_type} charts.
-        Include:
-        - Appropriate data structure for {chart_type} visualization
-        - Context-aware labels and values
-        - Relevant metadata and descriptions
-        """
-        
-        try:
-            response = await gpt_service.get_chat_response(
-                prompt=chart_prompt,
-                max_tokens=400,
-                temperature=0.3
-            )
-            
-            chart_data = json.loads(response)
-            return {
-                "has_artifact": True,
-                "component_type": "Chart",
-                "data": {
-                    "type": chart_type,
-                    **chart_data
-                }
-            }
-        except Exception as e:
-            logger.error(f"Error constructing {chart_type} chart: {str(e)}")
-            return self._generate_fallback_artifact("Chart", chart_type)
-
-
-class ArtifactSummaryProvider:
-    """Sub-agent responsible for providing detailed summary for artifacts."""
-    
-    def __init__(self, gpt_service: GPTService):
-        self.gpt_service = gpt_service
-
-    async def provide_summary(
-        self,
-        component_type: str,
-        chart_type: str,
-        artifact_data: Dict[str, Any],
-        conversation_history: Optional[List[Dict[str, Any]]] = None
-    ) -> str:
-        context_summary = ""
-        if conversation_history:
-            recent_messages = conversation_history[-5:]
-            context_summary = "\n".join([
-                f"{msg.get('role', 'unknown')}: {msg.get('content', '')}"
-                for msg in recent_messages
-            ])
-
-        summary_prompt = f"""
-        Consider the following conversation context and artifact data:
-        
-        CONVERSATION CONTEXT:
-        {context_summary if context_summary else "No prior conversation"}
-        
-        ARTIFACT TYPE: {component_type} ({chart_type if chart_type else 'N/A'})
-        ARTIFACT DATA: {json.dumps(artifact_data, indent=2)}
-        
-        Generate a comprehensive summary that:
-        1. Relates the artifact to the conversation context
-        2. Explains the main insights or findings
-        3. Connects the data to any relevant prior messages
-        4. Notes that the data is simulated for demonstration
-        
-        Provide a concise and contextual summary paragraph.
-        """
-
-        summary = await self.gpt_service.get_chat_response(
-            prompt=summary_prompt,
-            max_tokens=200,
-            temperature=0.5
-        )
-
-        return summary.strip()
-
-
 class ParentAgent:
-    """Parent agent that generates responses based on WorkflowDecider's metadata."""
-    
+    ALLOWED_COMPONENTS = {"table", "chart", "card", "text"}
+    ALLOWED_CHART_SUBTYPES = {"bar", "line", "pie", "radial", "radar","area"}
+
     def __init__(self, gpt_service: GPTService):
         self.gpt_service = gpt_service
-        self.quick_responder = QuickResponder()
-        self.artifact_constructor = ArtifactConstructor()
-        self.artifact_summary_provider = ArtifactSummaryProvider(gpt_service=gpt_service)
+        self.query_analyzer = QueryAnalyzer(gpt_service=gpt_service)
+        self.quick_responder = QuickResponder(gpt_service=gpt_service)
+        self.artifact_analyzer = ArtifactAnalyzer(
+            gpt_service=gpt_service,
+            allowed_components=self.ALLOWED_COMPONENTS,
+            allowed_chart_subtypes=self.ALLOWED_CHART_SUBTYPES
+        )
+        self.artifact_constructor = ArtifactConstructor(gpt_service=gpt_service)
+        self.response_gatherer = ResponseGatherer()
 
-    async def process(
-        self, 
-        prompt: str, 
-        metadata: Dict[str, Any],
-        conversation_history: Optional[List[Dict[str, Any]]] = None
-    ) -> Dict[str, Any]:
-        requires_artifact = metadata.get("artifact_creation", False)
+    async def process(self, prompt: str, metadata: Dict[str, Any], conversation_history: Dict[str, Any]) -> Dict[str, Any]:
+        logger.info("=== Parent Agent Started ===")
         analysis = metadata.get("analysis", "")
         reasoning = metadata.get("reasoning", "")
+        artifact_needed_from_decider = metadata.get("artifact_creation", False)
 
-        # If no artifact is needed, use QuickResponder with context
-        if not requires_artifact:
-            quick_response_metadata = await self.quick_responder.respond(
-                prompt, 
-                self.gpt_service, 
-                conversation_history
+        # Step 1: Query Analysis
+        query_analysis_result = await self.query_analyzer.analyze(
+            prompt=prompt,
+            analysis=analysis,
+            reasoning=reasoning,
+            artifact_needed_from_decider=artifact_needed_from_decider
+        )
+
+        if query_analysis_result["requires_artifact"]:
+            # Artifact path
+            artifact_analysis_result = await self.artifact_analyzer.determine_component(query_analysis_result["analysis"])
+            
+            if not artifact_analysis_result.get("success", False):
+                # Fallback to quick response if artifact analysis fails
+                final_response = await self._handle_quick_response(prompt, query_analysis_result["analysis"], conversation_history)
+                logger.info("=== Parent Agent Final Response ===")
+                logger.info(final_response)
+                return final_response
+            
+            artifact_result = await self.artifact_constructor.construct_artifact(
+                prompt=prompt,
+                component_type=artifact_analysis_result["component_type"],
+                component_subtype=artifact_analysis_result["component_subtype"],
+                analysis=artifact_analysis_result["analysis"]
             )
-            return quick_response_metadata
+            
+            if not artifact_result.get("success", False):
+                # Fallback to quick response if artifact construction fails
+                final_response = await self._handle_quick_response(prompt, query_analysis_result["analysis"], conversation_history)
+                logger.info("=== Parent Agent Final Response ===")
+                logger.info(final_response)
+                return final_response
+            
+            final_response = await self.response_gatherer.gather(artifact_response=artifact_result)
+            logger.info("=== Parent Agent Final Response ===")
+            logger.info(final_response)
+            return final_response
+        else:
+            # Quick response path
+            final_response = await self._handle_quick_response(prompt, query_analysis_result["analysis"], conversation_history)
+            logger.info("=== Parent Agent Final Response ===")
+            logger.info(final_response)
+            return final_response
 
-        # Get introductory content first
-        intro_prompt = f"""
-        Create a natural introductory response for the following request:
+    async def _handle_quick_response(self, prompt: str, analysis: str, conversation_history: Dict[str, Any]) -> Dict[str, Any]:
+        quick_response_result = await self.quick_responder.respond(
+            prompt=prompt,
+            analysis=analysis,
+            conversation_history=conversation_history
+        )
+        return await self.response_gatherer.gather(quick_response=quick_response_result)
+
+
+class QueryAnalyzer:
+    def __init__(self, gpt_service: GPTService):
+        self.gpt_service = gpt_service
+
+    async def analyze(self, prompt: str, analysis: str, reasoning: str, artifact_needed_from_decider: bool) -> Dict[str, Any]:
+        analysis_prompt = f"""
+        You are a Query Analysis Agent responsible for determining if a response requires visualization or structured data presentation.
         
-        USER QUERY: {prompt}
-        ANALYSIS: {analysis}
-        CONTEXT: {self._format_conversation_history(conversation_history) if conversation_history else "No prior context"}
-        
-        Write a brief, engaging response that:
-        1. Acknowledges the user's request
-        2. Mentions you'll create a visualization or structured view
-        3. Sounds natural and helpful
-        
-        Examples:
-        - "I'll create a chart to help you visualize these trends clearly."
-        - "Let me break down this data in a table for better understanding."
-        - "I'll organize this information into a structured visualization for you."
-        
-        Keep it brief (1-2 sentences) and conversational.
+        Original Query: {prompt}
+        Initial Analysis: {analysis}
+        Initial Reasoning: {reasoning}
+        Workflow Suggestion for Artifact: {artifact_needed_from_decider}
+
+        Analyze the complexity and nature of the required response.
+        Consider:
+        1. Does the query involve data comparison, trends, or patterns?
+        2. Would a visual representation enhance understanding?
+        3. Is the data structured enough for visualization?
+        4. Is the response better served with plain text?
+
+        Return a JSON with your analysis:
+        {{
+            "requires_artifact": boolean,
+            "analysis": "detailed analysis of requirements",
+            "data_points": ["list of key data points needed"],
+            "visualization_benefit": "explanation of why visualization would/wouldn't help",
+            "complexity_level": "high/medium/low"
+        }}
         """
 
-        intro_content = await self.gpt_service.get_chat_response(
-            prompt=intro_prompt,
-            max_tokens=100,
+        response = await self.gpt_service.get_chat_response(
+            prompt=analysis_prompt,
+            max_tokens=400,
+            temperature=0.2
+        )
+        
+        analysis_result = JSONHandler.extract_clean_json(response)
+        
+        return {
+            "requires_artifact": analysis_result.get("requires_artifact", artifact_needed_from_decider),
+            "analysis": analysis_result.get("analysis", analysis),
+            "data_points": analysis_result.get("data_points", []),
+            "complexity_level": analysis_result.get("complexity_level", "medium")
+        }
+
+
+class QuickResponder:
+    def __init__(self, gpt_service: GPTService):
+        self.gpt_service = gpt_service
+
+    async def respond(self, prompt: str, analysis: str, conversation_history: Dict[str, Any]) -> Dict[str, Any]:
+        response_prompt = f"""
+        Generate a clear and concise response to the user's query.
+        
+        Original Query: {prompt}
+        Analysis: {analysis}
+
+        Requirements:
+        1. Provide a direct and helpful answer
+        2. Include relevant context if necessary
+        3. Use natural, conversational language
+        4. Keep the response focused and to the point
+
+        Return only the response text that should be shown to the user.
+        """
+
+        response = await self.gpt_service.get_chat_response(
+            prompt=response_prompt,
+            conversation_history=conversation_history,
+            max_tokens=300,
             temperature=0.7
         )
 
-        # Get component decision
-        component_decision_prompt = f"""
-        Based on the following analysis and context, determine the most appropriate visualization format:
+        return {
+            "content": response,
+            "has_artifact": False
+        }
 
-        ANALYSIS: {analysis}
-        REASONING: {reasoning}
-        QUERY: {prompt}
-        CONVERSATION CONTEXT: {self._format_conversation_history(conversation_history) if conversation_history else "No prior context"}
 
-        Select the most appropriate format:
-        1. For statistical comparisons and multi-dimensional data: use "Table"
-        2. For trends and time-series data: use "Chart" with "line" type
-        3. For part-to-whole relationships: use "Chart" with "pie" type
-        4. For category comparisons: use "Chart" with "bar" type
-        5. For multi-metric comparisons: use "Chart" with "radar" type
-        6. For cumulative data: use "Chart" with "area" type
-        7. For metric summaries: use "Card"
+class ArtifactAnalyzer:
+    def __init__(self, gpt_service: GPTService, allowed_components: set, allowed_chart_subtypes: set):
+        self.gpt_service = gpt_service
+        self.allowed_components = allowed_components
+        self.allowed_chart_subtypes = allowed_chart_subtypes
 
-        Respond in JSON format:
+    async def determine_component(self, analysis: str) -> Dict[str, Any]:
+        """
+        Determine component_type and component_subtype strictly via GPT response.
+        If the analysis explicitly suggests a certain artifact or subtype, GPT should strongly adhere to it.
+        Otherwise, GPT chooses the best fit.
+
+        Steps:
+        1. Ask GPT for component_type and component_subtype.
+        2. If chart chosen but subtype missing/invalid, ask GPT to correct it.
+        3. Return the chosen component_type, component_subtype, and the original analysis.
+        """
+
+        component_prompt = f"""
+        You are an Artifact Analyzer Agent. You have the following information from the Query Analyzer:
+
+        Analysis: {analysis}
+
+        The analysis may or may not explicitly mention which artifact or subtype to use.
+        If the analysis explicitly suggests a certain component type or chart subtype, adhere to that suggestion.
+
+        If not explicitly stated, choose from:
+        Allowed components: {sorted(self.allowed_components)}
+        Allowed chart subtypes (if chart chosen): {sorted(self.allowed_chart_subtypes)}
+
+        Consider the data's nature, complexity, and visualization needs.
+        
+        Return ONLY JSON:
         {{
-            "component_type": "Chart" or "Table" or "Card",
-            "chart_type": "line" or "pie" or "bar" or "radar" or "area" (only if component_type is "Chart"),
-            "reasoning": "Brief explanation of why this format was chosen"
+          "component_type": "<one from allowed components>",
+          "component_subtype": "<one from allowed chart subtypes if chart, else null>",
+          "reasoning": "Brief explanation"
         }}
         """
 
-        response = await self.gpt_service.get_chat_response(
-            prompt=component_decision_prompt,
-            max_tokens=200,
+        first_response = await self.gpt_service.get_chat_response(
+            prompt=component_prompt,
+            max_tokens=300,
             temperature=0.3
         )
 
-        try:
-            component_decision = json.loads(response)
-            component_type = component_decision.get("component_type", "Table")
-            chart_type = component_decision.get("chart_type") if component_type == "Chart" else None
-        except json.JSONDecodeError:
-            logger.error("Failed to parse component decision")
-            component_type = "Table"
-            chart_type = None
+        decision = JSONHandler.extract_clean_json(first_response)
+        component_type = decision.get("component_type")
+        component_subtype = decision.get("component_subtype")
 
-        # Construct the appropriate artifact
-        if component_type == "Chart" and chart_type:
-            artifact_response = await self.artifact_constructor.construct_artifact(
-                component_type=component_type,
-                chart_type=chart_type,
-                prompt=prompt,
-                gpt_service=self.gpt_service,
-                conversation_history=conversation_history
+        # If chart chosen but subtype is missing or invalid, ask GPT to fix it.
+        if component_type == "chart" and (not component_subtype or component_subtype not in self.allowed_chart_subtypes):
+            fix_prompt = f"""
+            The chosen component_type is "chart" but the subtype provided is missing or invalid.
+            Allowed chart subtypes: {sorted(self.allowed_chart_subtypes)}
+
+            Based on previous analysis:
+            {analysis}
+
+            Please provide a corrected JSON with a valid chart subtype, keeping component_type as chart.
+
+            Return ONLY JSON:
+            {{
+              "component_type": "chart",
+              "component_subtype": "<valid subtype from allowed list>",
+              "reasoning": "Updated reasoning"
+            }}
+            """
+
+            fix_response = await self.gpt_service.get_chat_response(
+                prompt=fix_prompt,
+                max_tokens=100,
+                temperature=0.2
             )
-        elif component_type == "Table":
-            artifact_response = await self.construct_table_artifact(
-                prompt=prompt,
-                analysis=analysis,
-                conversation_history=conversation_history
-            )
-        elif component_type == "Card":
-            artifact_response = await self.construct_card_artifact(
-                prompt=prompt,
-                analysis=analysis,
-                conversation_history=conversation_history
-            )
+            fixed_decision = JSONHandler.extract_clean_json(fix_response)
+            component_type = fixed_decision.get("component_type", component_type)
+            component_subtype = fixed_decision.get("component_subtype", component_subtype)
+            reasoning = fixed_decision.get("reasoning", decision.get("reasoning", "No reasoning provided"))
         else:
-            logger.error(f"Unsupported component type: {component_type}")
-            return await self.quick_responder.respond(
-                prompt, 
-                self.gpt_service,
-                conversation_history
-            )
-        
-        artifact_response["content"] = intro_content.strip()
+            reasoning = decision.get("reasoning", "No reasoning provided")
 
-        # Generate summary with context
-        if artifact_response.get("has_artifact", False):
-            summary = await self.artifact_summary_provider.provide_summary(
-                component_type=component_type,
-                chart_type=artifact_response["data"].get("type"),
-                artifact_data=artifact_response["data"],
-                conversation_history=conversation_history
-            )
-            artifact_response["summary"] = summary
+        return {
+            "success": True,
+            "component_type": component_type,
+            "component_subtype": component_subtype if component_type == "chart" else None,
+            "analysis": analysis,  # Include the original analysis for the calling code.
+            "reasoning": reasoning
+        }
 
-        logger.info(f"Parent Agent generated artifact response based on workflow metadata: {json.dumps(artifact_response, indent=2)}")
-        return artifact_response
+class ArtifactConstructor:
+    def __init__(self, gpt_service: GPTService):
+        self.gpt_service = gpt_service
 
-    def _format_conversation_history(self, conversation_history: Optional[List[Dict[str, Any]]]) -> str:
-        """Format conversation history for prompt inclusion."""
-        if not conversation_history:
-            return "No prior conversation"
-            
-        formatted_history = []
-        for msg in conversation_history[-5:]:  # Include last 5 messages for context
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
-            formatted_history.append(f"{role}: {content}")
-            
-        return "\n".join(formatted_history)
+    async def construct_artifact(self, prompt: str, component_type: str, component_subtype: str, analysis: str) -> Dict[str, Any]:
+        artifact_json = await self._attempt_construction(prompt, component_type, component_subtype, analysis)
+        
+        # If artifact_json is empty or invalid, or missing subtype for chart, attempt a fallback request
+        if not artifact_json or not isinstance(artifact_json, dict):
+            logger.warning("Initial artifact JSON extraction failed. Attempting fallback request for cleaner JSON.")
+            artifact_json = await self._fallback_json_request(prompt, component_type, component_subtype, analysis)
+        
+        # If it's a chart, ensure subtype is present. If not, re-ask for a corrected JSON.
+        if component_type == "chart" and (not artifact_json.get("component_subtype") or artifact_json.get("component_subtype") not in ParentAgent.ALLOWED_CHART_SUBTYPES):
+            logger.warning("Chart artifact missing or invalid 'component_subtype'. Re-requesting a corrected JSON.")
+            artifact_json = await self._fallback_json_request(prompt, component_type, component_subtype, analysis, force_subtype=component_subtype)
 
-    async def construct_table_artifact(
-        self,
-        prompt: str,
-        analysis: str,
-        conversation_history: Optional[List[Dict[str, Any]]] = None
-    ) -> Dict[str, Any]:
-        """Construct a table artifact with context consideration."""
-        context_summary = self._format_conversation_history(conversation_history)
+        if not artifact_json:
+            return {"success": False, "error": "Failed to produce a valid artifact JSON after fallback."}
+
+        return {
+            "success": True,
+            "content": "Here's a structured representation of the data.",
+            "artifact_json": artifact_json,
+            "has_artifact": True
+        }
+
+    async def _attempt_construction(self, prompt: str, component_type: str, component_subtype: str, analysis: str) -> Optional[dict]:
+        component_metadata = await self._get_component_metadata(component_type, component_subtype)
+
+        construction_prompt = f"""
+        Create a detailed artifact definition based on the following:
         
-        table_prompt = f"""
-        Generate a structured table dataset for the following query and context:
-        
-        QUERY: "{prompt}"
-        ANALYSIS: "{analysis}"
-        CONVERSATION CONTEXT: {context_summary}
-        
-        Provide complete table data in JSON format:
-        {{
-            "title": "Table title",
-            "headers": ["Column1", "Column2", ...],
-            "rows": [
-                {{"Column1": "value", "Column2": "value", ...}},
-                ...
-            ]
-        }}
+        Original Query: {prompt}
+        Analysis: {analysis}
+        Component Type: {component_type}
+        Component Subtype: {component_subtype if component_subtype else 'N/A'}
+
+        Required Structure (JSON):
+        {component_metadata.get("structure", {})}
+
+        The data should align with the query context.
+        Return ONLY a JSON object.
         """
-        
-        response = await self.gpt_service.get_chat_response(
-            prompt=table_prompt,
+
+        artifact_json_str = await self.gpt_service.get_chat_response(
+            prompt=construction_prompt,
             max_tokens=800,
-            temperature=0.3
+            temperature=0.5
         )
-
-        try:
-            response = response.replace("```json", "").replace("```", "").strip()
-            table_data = json.loads(response)
-            
-            return {
-                "has_artifact": True,
-                "component_type": "Table",
-                "data": {
-                    "type": "table",
-                    "title": table_data.get("title", "Data Table"),
-                    "headers": table_data.get("headers", []),
-                    "rows": table_data.get("rows", []),
-                    "labels": table_data.get("headers", []),
-                    "data": {
-                        "values": table_data.get("rows", [])
-                    }
-                }
-            }
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse table data: {e}")
-            return self.generate_fallback_table()
-
-    def generate_fallback_table(self) -> Dict[str, Any]:
-        """Generate a fallback table structure."""
-        fallback_data = {
-            "has_artifact": True,
-            "component_type": "Table",
-            "data": {
-                "type": "table",
-                "title": "Data Summary",
-                "headers": ["Category", "Value"],
-                "rows": [{"Category": "No Data", "Value": "N/A"}],
-                # Add these fields to maintain compatibility with summary provider
-                "labels": ["Category", "Value"],
-                "data": {
-                    "values": [{"Category": "No Data", "Value": "N/A"}]
-                }
-            }
-        }
-        return fallback_data
-
-    async def construct_card_artifact(
-        self,
-        prompt: str,
-        analysis: str,
-        conversation_history: Optional[List[Dict[str, Any]]] = None
-    ) -> Dict[str, Any]:
-        """
-        Construct a card artifact for metric summaries with context consideration.
         
-        Args:
-            prompt (str): The current user query
-            analysis (str): Analysis from workflow decider
-            conversation_history (Optional[List[Dict[str, Any]]]): Previous conversation messages
-        """
-        try:
-            # Format conversation context
-            context_summary = self._format_conversation_history(conversation_history)
-            
-            card_prompt = f"""
-            Generate a metric card dataset based on the following query and context:
-            
-            QUERY: "{prompt}"
-            ANALYSIS: "{analysis}"
-            CONVERSATION CONTEXT: {context_summary}
-            
-            Create a card that summarizes key metrics or information points.
-            Provide the card data in JSON format:
-            {{
-                "title": "Clear, context-aware title",
-                "metrics": [
-                    {{
-                        "label": "Metric Name",
-                        "value": "Metric Value",
-                        "trend": "up/down/stable",
-                        "description": "Brief context-aware description"
-                    }},
-                    ...
-                ],
-                "summary": "Brief summary connecting metrics to conversation context",
-                "footer": "Additional context or notes"
-            }}
-            """
-            
-            response = await self.gpt_service.get_chat_response(
-                prompt=card_prompt,
-                max_tokens=500,
-                temperature=0.3
-            )
+        artifact_json = JSONHandler.extract_clean_json(artifact_json_str)
+        if artifact_json and self._validate_artifact_structure(artifact_json, component_metadata["structure"]):
+            return artifact_json
+        return None
 
-            # Clean and parse the response
-            response = response.replace("```json", "").replace("```", "").strip()
-            card_data = json.loads(response)
-            
+    async def _fallback_json_request(self, prompt: str, component_type: str, component_subtype: str, analysis: str, force_subtype: Optional[str] = None) -> Optional[dict]:
+        component_metadata = await self._get_component_metadata(component_type, force_subtype or component_subtype)
+
+        fallback_prompt = f"""
+        The previously generated JSON was incomplete or invalid.
+        Please regenerate a simpler, valid JSON artifact with the same constraints.
+
+        Original Query: {prompt}
+        Analysis: {analysis}
+        Component Type: {component_type}
+        Component Subtype: {force_subtype or component_subtype or 'N/A'}
+
+        Required Structure (JSON):
+        {component_metadata.get("structure", {})}
+
+        Provide a minimal, valid example. Return ONLY the JSON object.
+        """
+
+        artifact_json_str = await self.gpt_service.get_chat_response(
+            prompt=fallback_prompt,
+            max_tokens=500,
+            temperature=0.5
+        )
+        artifact_json = JSONHandler.extract_clean_json(artifact_json_str)
+        if artifact_json and self._validate_artifact_structure(artifact_json, component_metadata["structure"]):
+            return artifact_json
+        return None
+
+    async def _get_component_metadata(self, component_type: str, component_subtype: str = None) -> Dict[str, Any]:
+        base_structure = {
+            "title": "string",
+            "description": "string",
+            "component_type": component_type,
+            "style": {
+                "width": "string",
+                "height": "string"
+            }
+        }
+
+        if component_type == "chart":
             return {
-                "has_artifact": True,
-                "component_type": "Card",
-                "data": {
-                    "type": "card",
-                    "title": card_data.get("title", "Metric Summary"),
-                    "metrics": card_data.get("metrics", []),
-                    "summary": card_data.get("summary", "No summary available"),
-                    "footer": card_data.get("footer", ""),
-                    # Add these for compatibility with artifact summary provider
-                    "labels": [metric["label"] for metric in card_data.get("metrics", [])],
+                "structure": {
+                    **base_structure,
+                    "component_subtype": component_subtype,
                     "data": {
-                        "values": [metric["value"] for metric in card_data.get("metrics", [])]
+                        "labels": ["array of label strings"],
+                        "values": [
+                            {
+                                "entity": "string",
+                                "data": ["array of numeric values"]
+                            }
+                        ]
+                    },
+                    "configuration": {
+                        "axes": {
+                            "x": {"title": "string"},
+                            "y": {"title": "string"}
+                        },
+                        "legend": "boolean"
                     }
                 }
             }
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse card data: {e}")
-            return self.generate_fallback_card()
-            
-        except Exception as e:
-            logger.error(f"Error constructing card artifact: {str(e)}")
-            return self.generate_fallback_card()
-
-    def generate_fallback_card(self) -> Dict[str, Any]:
-        """Generate a fallback card structure when card creation fails."""
-        return {
-            "has_artifact": True,
-            "component_type": "Card",
-            "data": {
-                "type": "card",
-                "title": "Summary Card",
-                "metrics": [
-                    {
-                        "label": "Status",
-                        "value": "No Data",
-                        "trend": "stable",
-                        "description": "Unable to generate metrics"
-                    }
-                ],
-                "summary": "Failed to generate card content",
-                "footer": "Please try again or contact support",
-                "labels": ["Status"],
-                "data": {
-                    "values": ["No Data"]
-                }
-            }
-        }
-
-    async def construct_artifact(
-        self,
-        component_type: str,
-        chart_type: str,
-        prompt: str,
-        conversation_history: Optional[List[Dict[str, Any]]] = None
-    ) -> Dict[str, Any]:
-        """
-        Construct the appropriate artifact based on component type.
-        Now includes conversation context support.
-        """
-        try:
-            context_summary = self._format_conversation_history(conversation_history)
-            
-            artifact_prompt = f"""
-            Generate metadata for a {chart_type} {component_type} considering the following context:
-            
-            QUERY: "{prompt}"
-            CONVERSATION CONTEXT: {context_summary}
-            
-            Generate JSON metadata for the {chart_type} {component_type}, including:
-            - Title: A descriptive title based on query and context
-            - Style: JSON with width and height
-            - Labels: Relevant labels based on conversation context
-            - Data: Appropriate numeric values
-            - Source: Note that this is simulated data
-            
-            Respond in JSON format:
-            {{
-                "title": "Descriptive chart title",
-                "style": {{"width": "800px", "height": "500px"}},
-                "labels": ["Label1", "Label2", ...],
-                "data": {{"values": [numeric values]}}
-            }}
-            """
-
-            response = await self.gpt_service.get_chat_response(
-                prompt=artifact_prompt,
-                max_tokens=500,
-                temperature=0.4
-            )
-
-            try:
-                artifact_data = json.loads(response)
-            except json.JSONDecodeError:
-                logger.error("Failed to parse artifact response as JSON")
-                artifact_data = self.generate_fallback_artifact_data()
-
+        elif component_type == "table":
             return {
-                "has_artifact": True,
-                "component_type": component_type,
-                "data": {
-                    "type": chart_type,
-                    "title": artifact_data.get("title", "Generated Chart"),
-                    "style": artifact_data.get("style", {"width": "800px", "height": "500px"}),
-                    "labels": artifact_data.get("labels", ["Label1", "Label2", "Label3"]),
-                    "data": artifact_data.get("data", {"values": [25, 50, 25]})
+                "structure": {
+                    **base_structure,
+                    "data": {
+                        "headers": ["array of column names"],
+                        "rows": ["array of data rows"]
+                    }
                 }
             }
+        
+        # Default structure if not defined otherwise
+        return {"structure": base_structure}
 
-        except Exception as e:
-            logger.error(f"Error constructing artifact: {str(e)}")
-            return self.generate_fallback_artifact_data()
+    def _validate_artifact_structure(self, artifact: Dict[str, Any], required_structure: Dict[str, Any]) -> bool:
+        """Validates that the artifact follows the required structure"""
+        def validate_dict(actual: Dict[str, Any], expected: Dict[str, Any]) -> bool:
+            for key, value in expected.items():
+                if key not in actual:
+                    return False
+                if isinstance(value, dict) and isinstance(actual[key], dict):
+                    if not validate_dict(actual[key], value):
+                        return False
+                # If expected is not a dict, we just check existence.
+            return True
 
-    def generate_fallback_artifact_data(self) -> Dict[str, Any]:
-        """Generate fallback artifact data structure."""
-        return {
-            "title": "Generated Chart",
-            "style": {"width": "800px", "height": "500px"},
-            "labels": ["Category 1", "Category 2", "Category 3"],
-            "data": {"values": [33, 33, 34]}
-        }
+        return validate_dict(artifact, required_structure)
 
+
+class ResponseGatherer:
+    async def gather(self, quick_response: Dict[str, Any] = None, artifact_response: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Gathers and formats the final response in a readable way for logs."""
+        if artifact_response and artifact_response.get("has_artifact"):
+            artifact_json = artifact_response.get("artifact_json", {})
+            
+            component_type = artifact_json.get("component_type")
+            component_subtype = artifact_json.get("component_subtype") if component_type == "chart" else None
+
+            final_result = {
+                "has_artifact": True,
+                "summary": artifact_response.get("content", "Here's the visualization you requested."),
+                "component_type": component_type,
+                "sub_type": component_subtype,
+                "data": artifact_json.get("data"),
+                "style": artifact_json.get("style", {}),
+                "configuration": artifact_json.get("configuration", {}),
+                "metadata": {
+                    "title": artifact_json.get("title"),
+                    "description": artifact_json.get("description")
+                }
+            }
+        else:
+            final_result = {
+                "has_artifact": False,
+                "content": quick_response.get("content") if quick_response else "No content available.",
+                "metadata": {}
+            }
+
+        # Using json.dumps with indent=2 provides a neat, multiline JSON format:
+        # Arrays and objects are properly spaced and newlined, producing a result
+        # similar to the example you provided.
+        formatted_response = json.dumps(final_result, indent=2)
+        logger.info("\n=== FINAL STRUCTURED RESPONSE ===\n" + formatted_response + "\n===============================\n")
+
+        return final_result

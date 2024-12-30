@@ -24,7 +24,7 @@ backend_dir = project_root / "backend"
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(backend_dir))
 
-from app.config import settings
+from backend.app.config import settings
 
 # [AI]: Initialize colorama for cross-platform colored console output
 init(autoreset=True)
@@ -44,7 +44,7 @@ logging.basicConfig(level=logging.WARNING, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
 # [AI]: Reduce watchfiles logging output in debug mode to minimize console clutter
-if settings.ENV.DEBUG:
+if settings.ENV['DEBUG']:
     logging.getLogger("watchfiles").setLevel(logging.ERROR)
 
 # [AI]: Function to open the application in a browser
@@ -81,7 +81,6 @@ def open_edge(url):
             continue
     return False
 
-# [AI]: Main function to start the backend server
 def main():
     # [AI]: Parse command-line arguments for browser selection
     parser = argparse.ArgumentParser(description="Start the FastAPI backend server")
@@ -89,16 +88,17 @@ def main():
     args = parser.parse_args()
 
     print()  # [AI]: Add one line space after the command line for better readability
-    print_info(f"Starting {settings.PROJECT.NAME} backend server ({settings.ENV.APP_ENV})")
-    
+    # Ensure APP is accessed correctly
+    print_info(f"Starting {settings.PROJECT['NAME']} backend server ({settings.ENV['APP_ENV']})")  # Change to dictionary access
+
     # [AI]: Warn about potential need for database migrations
-    if settings.DATABASE.AUTO_MIGRATE:
+    if settings.DATABASE.get('AUTO_MIGRATE', False):  # Use .get() to avoid KeyError
         print_warning("Run alembic_new_migration.py and update_database_schema.py if you made model changes.")
 
     # [AI]: Construct server URL and start browser in a separate thread
-    url = f'http://{settings.SERVER.HOST}:{settings.SERVER.PORT}'
+    url = f"http://{settings.SERVER['HOST']}:{settings.SERVER['PORT']}"
     print_info(f"Starting server on {url}")
-    Thread(target=open_browser, args=(url, args.browser)).start()
+    # Thread(target=open_browser, args=(url, args.browser)).start()
     print_info("App opened in browser")
     print()
 
@@ -108,10 +108,10 @@ def main():
     # [AI]: Start the FastAPI server using uvicorn
     uvicorn.run(
         app="app.main:app",
-        host=settings.SERVER.HOST,
-        port=settings.SERVER.PORT,
+        host=settings.SERVER['HOST'],
+        port=settings.SERVER['PORT'],
         log_level="warning",
-        reload=settings.ENV.DEBUG,
+        reload=settings.ENV['DEBUG'],
     )
 
 if __name__ == "__main__":

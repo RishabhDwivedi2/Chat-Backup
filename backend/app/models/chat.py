@@ -9,6 +9,12 @@ from sqlalchemy.sql import func
 from sqlalchemy import Enum
 from .base import Base
 from .enums import ComponentType
+from enum import Enum as PyEnum
+
+class Platform(str, PyEnum):  # Changed to str, PyEnum
+    WEB = "web"
+    GMAIL = "gmail"
+    TELEGRAM = "telegram"
 
 class ChatCollection(Base):
     __tablename__ = "chat_collections"
@@ -21,6 +27,9 @@ class ChatCollection(Base):
     is_active = Column(Boolean, default=True)
     conversation_count = Column(Integer, default=0)
     description = Column(Text)
+    
+    platform = Column(String(10), nullable=False, default=Platform.WEB.value)  # Changed to String for now
+
 
     # Relationships
     user = relationship("User", back_populates="chat_collections")
@@ -28,7 +37,7 @@ class ChatCollection(Base):
 
     __table_args__ = (
         CheckConstraint('conversation_count >= 0', name='check_conversation_count_positive'),
-        UniqueConstraint('user_email', 'collection_name', name='unique_collection_per_user'),
+        # UniqueConstraint('user_email', 'collection_name', name='unique_collection_per_user'),
     )
 
 class Conversation(Base):
@@ -42,10 +51,11 @@ class Conversation(Base):
     last_message_at = Column(DateTime(timezone=True), server_default=func.now())
     status = Column(Enum('active', 'archived', 'deleted', name='conversation_status'), default='active')
     message_count = Column(Integer, default=0)
-
+    message_metadata = Column(JSON, nullable=True)
     # Relationships
     collection = relationship("ChatCollection", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
+    thread_id = Column(String(255), nullable=True, unique=False) 
 
     __table_args__ = (
         CheckConstraint('message_count >= 0', name='check_message_count_positive'),
@@ -102,6 +112,7 @@ class Artifact(Base):
     id = Column(Integer, primary_key=True, index=True)
     message_id = Column(Integer, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
     component_type = Column(String(20), nullable=False)
+    sub_type = Column(String(20))
     title = Column(String(255))
     description = Column(Text)
     data = Column(JSON, nullable=False)

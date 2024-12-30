@@ -4,7 +4,7 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool, create_engine, MetaData
 from alembic import context
 from app.database import Base
-from app.config import settings
+from backend.app.config.constants import settings
 from app.models import *
 
 config = context.config

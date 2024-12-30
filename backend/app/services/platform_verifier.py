@@ -142,18 +142,41 @@ class PlatformVerifier:
         }
 
     async def _transform_to_standard_format(self, platform: str, verified_data: Dict):
-        """Transform to standard format"""
-        return {
-            "platform": platform,
-            "prompt": verified_data["prompt"],
-            "attachments": verified_data.get("attachments"),
-            "metadata": {
-                "platform_type": platform,
-                "platform_metadata": verified_data.get("metadata", {}),
-                "user_context": verified_data.get("user_info", {}),
-                "verified_at": str(datetime.utcnow())
+            """Transform to standard format while preserving both Gmail and web functionality"""
+            # Base metadata structure
+            platform_metadata = {
+                "max_tokens": verified_data.get("metadata", {}).get("max_tokens", 100),
+                "temperature": verified_data.get("metadata", {}).get("temperature", 0.7),
             }
-        }
+
+            # For Gmail, add thread_id and subject to platform_metadata
+            if platform == "gmail":
+                platform_metadata.update({
+                    "thread_id": verified_data["metadata"].get("thread_id"),
+                    "subject": verified_data["metadata"].get("subject")
+                })
+
+            # For web, preserve conversation_id and parent_message_id
+            if platform == "web":
+                platform_metadata.update({
+                    "conversation_id": verified_data.get("metadata", {}).get("conversation_id"),
+                    "parent_message_id": verified_data.get("metadata", {}).get("parent_message_id")
+                })
+
+            return {
+                "platform": platform,
+                "prompt": verified_data["prompt"],
+                "attachments": verified_data.get("attachments"),
+                "metadata": {
+                    "platform": platform,
+                    "platform_type": platform,
+                    "platform_metadata": platform_metadata,
+                    "user_context": verified_data.get("user_info", {}),
+                    "thread_id": verified_data["metadata"].get("thread_id") if platform == "gmail" else None,
+                    "subject": verified_data["metadata"].get("subject") if platform == "gmail" else None,
+                    "verified_at": str(datetime.utcnow())
+                }
+            }
 
     async def _verify_telegram_request(self, prompt: str, metadata: Dict):
         """Verify telegram platform request"""
@@ -171,15 +194,35 @@ class PlatformVerifier:
         }
 
     async def _verify_gmail_request(self, prompt: str, metadata: Dict):
-        """Verify gmail platform request"""
-        if not prompt:
-            raise HTTPException(status_code=400, detail="Email content is required for gmail")
-        
-        if "email_id" not in metadata:
-            raise HTTPException(status_code=400, detail="Missing email_id in gmail metadata")
+            """Verify Gmail platform request"""
+            if not prompt:
+                raise HTTPException(status_code=400, detail="Email content required")
+                    
+            required_fields = ["email_id", "thread_id", "from_email", "subject"]
+            if not all(field in metadata for field in required_fields):
+                raise HTTPException(status_code=400, detail="Missing required Gmail metadata")
 
-        return {
-            "prompt": prompt,
-            "metadata": metadata,
-            "user_info": metadata.get("user_info", {})
-        }
+            # Additional Gmail-specific verifications
+            if not isinstance(metadata.get("thread_id"), str) and metadata.get("thread_id") is not None:
+                raise HTTPException(status_code=400, detail="Invalid thread_id format")
+
+            if "@" not in metadata.get("from_email", ""):
+                raise HTTPException(status_code=400, detail="Invalid email format")
+
+            platform_metadata = {
+                "max_tokens": metadata.get("platform_metadata", {}).get("max_tokens", 100),
+                "temperature": metadata.get("platform_metadata", {}).get("temperature", 0.7),
+                "thread_id": metadata.get("thread_id"),
+                "subject": metadata.get("subject")
+            }
+
+            return {
+                "prompt": prompt,
+                "metadata": {
+                    **metadata,
+                    "platform": "gmail",
+                    "platform_type": "gmail",
+                    "platform_metadata": platform_metadata,
+                    "verified_at": datetime.utcnow().isoformat()
+                }
+            }

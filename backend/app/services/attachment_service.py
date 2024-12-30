@@ -23,10 +23,8 @@ class AttachmentService:
             secure=False
         )
         self.minio_endpoint = "http://localhost:9000"
-        # Using permanent bucket instead of chat-attachments
         self.bucket_name = 'permanent'
         
-        # Ensure bucket exists - not needed since we already created it manually
         try:
             if not self.minio_client.bucket_exists(self.bucket_name):
                 logger.warning(f"Bucket {self.bucket_name} does not exist")
@@ -52,11 +50,9 @@ class AttachmentService:
         try:
             temp_file_path = await self.save_file_to_temp(file)
             
-            # Generate storage path without 'permanent/' prefix since we're already in permanent bucket
             timestamp = int(datetime.now().timestamp() * 1000)
             storage_path = f"{timestamp}-{file.filename}"
             
-            # Upload to MinIO permanent bucket
             self.minio_client.fput_object(
                 self.bucket_name,
                 storage_path,
@@ -64,10 +60,8 @@ class AttachmentService:
                 content_type=file.content_type
             )
             
-            # Clean up temp file
             os.unlink(temp_file_path)
             
-            # Get the direct URL
             download_url = f"{self.minio_endpoint}/{self.bucket_name}/{storage_path}"
             
             return {
@@ -94,7 +88,7 @@ class AttachmentService:
             attachment = Attachment(
                 message_id=message_id,
                 file_type=self.get_file_type(file.content_type),
-                file_path=uploaded_file['storage_path'],  # No longer includes 'permanent/' prefix
+                file_path=uploaded_file['storage_path'],  
                 original_filename=file.filename,
                 file_size=file.size,
                 mime_type=file.content_type,

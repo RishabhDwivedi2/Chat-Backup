@@ -1,7 +1,10 @@
+# app/services/agents/workflow_decider.py
+
 from typing import Dict, Any
 import logging
 from app.services.gpt_service import GPTService
 import json
+from app.utils.json_handler import JSONHandler
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +50,7 @@ class WorkflowDecider:
 
         Respond in JSON format:
         {{
-            "selected_agent": "ParentAgent or AgenticWorkflowAgent",
+            "selected_agent": "ParentAgent or ParentAgent",
             "requires_artifact": true/false,
             "reasoning": "Clear explanation of why artifact is needed or not needed based on query characteristics"
         }}
@@ -60,17 +63,16 @@ class WorkflowDecider:
         )
 
         try:
-            decision_data = json.loads(gpt_response)
+            decision_data = JSONHandler.extract_clean_json(gpt_response)
             requires_artifact = decision_data.get("requires_artifact", False)
-            reasoning = decision_data.get("reasoning", "Default reasoning applied")
-            selected_agent = "ParentAgent" if requires_artifact else decision_data.get("selected_agent", "ParentAgent")
-            
-        except json.JSONDecodeError:
-            logger.error("Failed to parse GPT response as JSON")
+            selected_agent = decision_data.get("selected_agent", "ParentAgent")
+            reasoning = decision_data.get("reasoning", "No reasoning provided")
+        except Exception as e:
+            logger.error(f"Error parsing decision data: {e}")
             # Analyze the query text directly for fallback decision
             query_indicators = ["statistics", "compare", "trends", "metrics", "performance", "data", "table", "chart"]
             requires_artifact = any(indicator in metadata.get("analysis", "").lower() for indicator in query_indicators)
-            selected_agent = "ParentAgent" if requires_artifact else "AgenticWorkflowAgent"
+            selected_agent = "ParentAgent" if requires_artifact else "ParentAgent"
             reasoning = "Fallback analysis based on query keywords and content type"
 
         decision_metadata = {

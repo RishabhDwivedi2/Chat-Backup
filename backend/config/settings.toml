@@ -25,4 +25,3 @@ DEBUG = false  # Default debug mode, can be overridden
 [VSCODE]
 [CORS]
 [DATABASE]
-

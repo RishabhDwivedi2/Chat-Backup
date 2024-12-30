@@ -15,6 +15,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import useThemeStore from '@/store/themeStore';
 import useProfileStore from "@/store/profileStore";
 import { themeColors, themeModes, removeThemeClasses, DEFAULT_THEME } from '@/config/themeConfig';
+import { useProcessorStore } from '@/store/processorStore';
 
 
 interface ChatHeaderProps {
@@ -52,7 +53,7 @@ const panelTooltips: Record<PanelType, string> = {
   ChatContainer: "",
 };
 
-const orderedPanels: PanelType[] = ['ChatHistory', 'ChatProcessor', 'ChatControls', 'ChatArtifacts'];
+const orderedPanels: PanelType[] = ['ChatHistory', 'ChatProcessor', 'ChatControls'];
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
   toggleChatControls,
@@ -115,7 +116,6 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   };
 
   const handleToggleChatHistory = () => {
-    // Trigger the chat history toggle
     toggleChatHistory();
   };
 
@@ -248,6 +248,26 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
     router.push("/login");
   };
 
+  const clearZustandStores = () => {
+    // Clear Profile Store
+    const resetProfile = useProfileStore.getState().setProfile;
+    const resetUserName = useProfileStore.getState().setUserName;
+    resetProfile(null);
+    resetUserName('');
+
+    // Clear Processor Store
+    const refreshAnalyses = useProcessorStore.getState().refreshAnalyses;
+    useProcessorStore.setState({ analyses: [] });
+    refreshAnalyses();
+
+    // Clear localStorage
+    for (const key in window.localStorage) {
+        if (key.startsWith('user-profile-storage') || key.startsWith('analysis-storage')) {
+            window.localStorage.removeItem(key);
+        }
+    }
+  };
+
   return (
     <header className="sticky top-0 z-10 flex h-[57px] items-center justify-between px-4 bg-background">
       {isMobile ? (
@@ -272,7 +292,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
               <AnimatedShinyText
                 className="inline-flex items-center justify-center mr-3 transition ease-out hover:text-neutral-600 hover:duration-300 hover:dark:text-neutral-400 cursor-pointer"
               >
-                <span className="text-xl font-bold">✨ Chat.</span>
+                <span className="text-xl font-bold" onClick={clearZustandStores}>✨ Chat.</span>
               </AnimatedShinyText>
             )}
 

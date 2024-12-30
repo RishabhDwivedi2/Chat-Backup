@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from backend.app.config import settings
+from backend.app.config.constants import settings
 from typing import Dict, Any
 
 def add_exception_handler(app: FastAPI) -> None:

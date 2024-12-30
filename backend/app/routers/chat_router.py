@@ -22,8 +22,10 @@ from app.services.artifact_service import ArtifactService
 from sqlalchemy import select
 from app.services.agents.response_structurer import ResponseStructurer
 from app.models.base import Base  
-from app.models.chat import (Message, ChatCollection)
+from app.models.chat import (Message, ChatCollection, Artifact)
 from app.models.chat import Conversation as ConversationDB  # Used a different name to avoid conflict
+from app.config import settings 
+from fastapi import Path
 from app.schemas.chat import (
     ChatCollectionCreate, 
     ConversationCreate, 
@@ -33,26 +35,36 @@ from app.schemas.chat import (
     MessageWithDetails,
     ChatCollectionResponse,
     ConversationBrief,
+    ArtifactResponse
 )
+from app.schemas.chat import Platform
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+async def get_platform_from_request(request: Request) -> str:
+    """Get platform from request state or default to web"""
+    if hasattr(request, 'state') and hasattr(request.state, 'verified_data'):
+        return request.state.verified_data.get('metadata', {}).get('platform_type', Platform.WEB)
+    return Platform.WEB
+
 @router.post("/", response_model=ChatResponse)
 async def get_chat_response(
+    request: Request,
     prompt: str = Form(...),
     max_tokens: Optional[int] = Form(100),
     temperature: Optional[float] = Form(0.7),
     conversation_id: Optional[int] = Form(None),
     parent_message_id: Optional[int] = Form(None),
     attachments: Optional[List[UploadFile]] = File(None),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user) if not settings.APP.TESTING_MODE else None,
     db: Session = Depends(get_db)
 ):
     """Enhanced chat endpoint with proper agent response handling"""
 
     try:
-        user_email = current_user['sub']
+        user_email = settings.APP.TEST_USER_EMAIL if settings.APP.TESTING_MODE else current_user.get('sub')
         logger.info(f"Processing chat request for authenticated user: {user_email}")
         
         logger.debug(f"Received chat request with prompt: {prompt[:100]}...")
@@ -65,13 +77,44 @@ async def get_chat_response(
         title_generator = TitleGenerator(gpt_service=gpt_service)
         attachment_service = AttachmentService(db)
         artifact_service = ArtifactService(db)
-        response_structurer = ResponseStructurer(gpt_service=gpt_service)
+        response_structurer = ResponseStructurer()
 
         start_time = datetime.utcnow()
 
         # Handle conversation and history
         conversation = None
         conversation_history = []
+        
+# Add this debug section at the start of platform detection
+        logger.info("=== PLATFORM DETECTION DEBUG ===")
+        if hasattr(request.state, 'verified_data'):
+            logger.info(f"Has verified_data: {True}")
+            verified_data = request.state.verified_data
+            logger.info(f"Verified data: {json.dumps(verified_data, indent=2)}")
+        else:
+            logger.info("No verified_data in request.state")
+            logger.info(f"Request state attributes: {dir(request.state)}")
+        
+        # Platform detection logic
+        platform = Platform.WEB  # Default to web
+        thread_id = None
+        subject = None
+        
+        if hasattr(request.state, 'verified_data'):
+            verified_data = request.state.verified_data
+            # Get platform directly from top level
+            raw_platform = verified_data.get('platform', Platform.WEB)
+            logger.info(f"Raw platform value: {raw_platform}")
+            platform = Platform(raw_platform)
+            
+            # Get Gmail-specific metadata
+            metadata = verified_data.get('metadata', {})
+            if platform == Platform.GMAIL:
+                thread_id = metadata.get('thread_id')
+                subject = metadata.get('subject')
+                logger.info(f"Gmail metadata found - Thread ID: {thread_id}, Subject: {subject}")
+        
+        logger.info(f"Final platform determination: {platform.value}")
         
         if conversation_id:
             conversation = chat_service.get_conversation(conversation_id)
@@ -87,44 +130,68 @@ async def get_chat_response(
                 for msg in messages
             ]
         else:
-            existing_titles_query = select(ChatCollection.collection_name)
-            existing_titles = [row[0] for row in db.execute(existing_titles_query).fetchall()]
+            # For Gmail platform, first check if there's an existing conversation with this thread_id
+            if platform == Platform.GMAIL and thread_id:
+                existing_conversation = chat_service.get_conversation_by_thread_id(thread_id)
+                if existing_conversation:
+                    conversation = existing_conversation
+                    messages = chat_service.get_conversation_messages(existing_conversation.id)
+                    conversation_history = [
+                        {
+                            "role": msg.role,
+                            "content": msg.content,
+                            "timestamp": msg.created_at.isoformat()
+                        }
+                        for msg in messages
+                    ]
+                    logger.info(f"Found existing conversation for Gmail thread: {thread_id}")
             
-            # Generate unique title
-            title, is_fallback = await title_generator.generate_unique_title(
-                prompt,
-                existing_titles=existing_titles,
-                conversation_history=conversation_history
-            )
-            
-            if is_fallback:
-                logger.warning(f"Used fallback title generation for query: {prompt}")
-            
-            collection_data = ChatCollectionCreate(
-                collection_name=title,
-                description="Auto-generated chat collection"
-            )
-            
-            try:
-                new_collection = chat_service.create_chat_collection(
-                    user_email=user_email,
-                    collection_data=collection_data
+            # If no existing conversation found, create new collection and conversation
+            if not conversation:
+                # Determine title based on platform
+                if platform == Platform.GMAIL and subject:
+                    title = subject
+                    logger.info(f"Using email subject as collection title: {title}")
+                else:
+                    # For web platform, generate title as before
+                    title, _ = await title_generator.generate_unique_title(
+                        prompt,
+                        existing_titles=[],
+                        conversation_history=conversation_history
+                    )
+                    logger.info(f"Generated title for web platform: {title}")
+                
+                # Create collection with proper platform
+                collection_data = ChatCollectionCreate(
+                    collection_name=title,
+                    description="Auto-generated chat collection",
+                    platform=platform.value  # Ensure platform is properly set
                 )
-            except Exception as e:
-                logger.error(f"Failed to create chat collection: {str(e)}")
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to create chat collection due to title conflict"
+                
+                try:
+                    new_collection = chat_service.create_chat_collection(
+                        user_email=user_email,
+                        collection_data=collection_data
+                    )
+                    logger.info(f"Created new collection for platform {platform.value}")
+                except Exception as e:
+                    logger.error(f"Failed to create chat collection: {str(e)}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to create chat collection"
+                    )
+                
+                # Create conversation with thread_id for Gmail
+                conversation_data = ConversationCreate(
+                    collection_id=new_collection.id,
+                    title=title,
+                    description="Auto-generated conversation",
+                    thread_id=thread_id if platform == Platform.GMAIL else None
                 )
-            
-            conversation_data = ConversationCreate(
-                collection_id=new_collection.id,
-                title=title,
-                description="Auto-generated conversation"
-            )
-            conversation = chat_service.create_conversation(conversation_data)
+                conversation = chat_service.create_conversation(conversation_data)
+                logger.info(f"Created new conversation with thread_id: {thread_id if platform == Platform.GMAIL else 'None'}")
 
-        # Store user message
+        # [Rest of the code remains exactly the same...]
         user_message = chat_service.create_message(MessageCreate(
             conversation_id=conversation.id,
             role="user",
@@ -134,7 +201,6 @@ async def get_chat_response(
             has_artifact=False
         ))
 
-        # Add current message to conversation history
         conversation_history.append({
             "role": "user",
             "content": prompt,
@@ -166,7 +232,6 @@ async def get_chat_response(
                 user_id=user_email
             )
 
-            # Update message metadata with attachment info
             attachment_metadata = {
                 "attachments": [{
                     "id": att.id,
@@ -184,10 +249,16 @@ async def get_chat_response(
             conversation_history=conversation_history,
             attachments=[{"file_path": file.filename, "file_size": file.size} for file in attachments] if attachments else None
         )
+        
+        logger.info("\n=== INPUT ANALYSIS IN CHAT ROUTER ===")
+        logger.info(f"Input Analysis Result: {json.dumps(analysis_result, indent=2)}")
 
         # Workflow Decision
         workflow_decider = WorkflowDecider(gpt_service=gpt_service)
         decision_metadata = await workflow_decider.decide_workflow(analysis_result["metadata"])
+        
+        logger.info("\n=== WORKFLOW DECIDER IN CHAT ROUTER ===")
+        logger.info(f"Workflow Decision Metadata: {json.dumps(decision_metadata, indent=2)}")
         
         response_data = {
             "message": {
@@ -198,6 +269,8 @@ async def get_chat_response(
             }
         }
 
+        logger.info("\n=== PARENT AGENT IN CHAT ROUTER ===")
+
         if decision_metadata["selected_agent"] == "ParentAgent":
             parent_agent = ParentAgent(gpt_service=gpt_service)
             parent_response_metadata = await parent_agent.process(
@@ -206,14 +279,12 @@ async def get_chat_response(
                 conversation_history=conversation_history
             )
 
-            # Process through ResponseStructurer
             structured_response = await response_structurer.structure_response(
                 parent_metadata=parent_response_metadata,
                 original_prompt=prompt,
                 conversation_history=conversation_history
             )
 
-            # Log the structured response
             logger.info(f"Structured Response Generated: {json.dumps(structured_response, indent=2)}")
 
             assistant_message_content = parent_response_metadata.get("content")
@@ -224,7 +295,6 @@ async def get_chat_response(
                 assistant_message_content = "No response content available."
 
         else:  # AgenticWorkflowAgent or fallback
-            # Get direct response for simple queries
             assistant_message_content = await gpt_service.get_chat_response(
                 prompt=prompt,
                 conversation_history=conversation_history,
@@ -232,7 +302,6 @@ async def get_chat_response(
                 temperature=temperature
             )
 
-            # Process through ResponseStructurer even for simple responses
             structured_response = await response_structurer.structure_response(
                 parent_metadata={
                     "content": assistant_message_content,
@@ -242,10 +311,8 @@ async def get_chat_response(
                 conversation_history=conversation_history
             )
 
-            # Log the structured response
             logger.info(f"Structured Response Generated: {json.dumps(structured_response, indent=2)}")
 
-        # Store assistant message with structured metadata
         assistant_message = chat_service.create_message(MessageCreate(
             conversation_id=conversation.id,
             role="assistant",
@@ -255,35 +322,47 @@ async def get_chat_response(
             message_metadata={
                 "timestamp": datetime.utcnow().isoformat(),
                 "agent": decision_metadata["selected_agent"],
-                "structured_response": structured_response
+                "structured_response": structured_response,
+                "platform": platform.value  # Add platform to message metadata
             },
-            has_artifact=structured_response.get("has_artifact", False)  # Use structured response's has_artifact
+            has_artifact=structured_response.get("has_artifact", False)  
         ))
 
-        # Build response using structured response format
         response_data = {
             "message": {
                 "id": assistant_message.id,
                 "conversation_id": conversation.id,
-                "structured_response": structured_response  # Include the entire structured response
+                "structured_response": structured_response  
             }
         }
 
-        # Handle artifact creation if needed
         if structured_response.get("has_artifact") and decision_metadata["selected_agent"] == "ParentAgent":
             try:
-                artifact = await artifact_service.create_artifact_from_parent_response(
+                artifact = Artifact(
                     message_id=assistant_message.id,
-                    parent_response=parent_response_metadata
+                    component_type=structured_response.get("component_type", ""),
+                    sub_type=structured_response.get("sub_type", ""),
+                    title=structured_response.get("metadata", {}).get("title", "Untitled Artifact"),
+                    description=structured_response.get("metadata", {}).get("description", ""),
+                    data=structured_response.get("data", {}),
+                    style=structured_response.get("style", {}),
+                    configuration=structured_response.get("configuration", {})
                 )
-                if artifact:
-                    response_data["message"]["artifact_id"] = artifact.id
-                    structured_response["artifact_id"] = artifact.id  # Add artifact ID to structured response
+
+                db.add(artifact)
+                db.commit()
+                db.refresh(artifact)
+
+                retrieved_artifact = artifact_service.get_artifact(artifact.id)
+                structured_response["artifact_id"] = retrieved_artifact.id
+                response_data["message"]["artifact_id"] = retrieved_artifact.id
+
             except Exception as e:
                 logger.error(f"Failed to create artifact: {str(e)}")
                 structured_response["artifact_error"] = "Failed to create artifact"
 
-        logger.info(f"Response Data: {json.dumps(response_data, indent=2)}")
+        logger.info("=== FINAL STRUCTURED RESPONSE AFTER ARTIFACT CREATION ===")
+        logger.info(json.dumps(structured_response, indent=2))
 
         return ChatResponse(
             response=json.dumps(response_data),
@@ -303,7 +382,7 @@ async def get_chat_response(
 @router.get("/collections", response_model=List[ChatCollectionResponse])
 async def get_user_collections(
     request: Request,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user) if not settings.APP.TESTING_MODE else None,
     db: Session = Depends(get_db)
 ):
     """
@@ -311,25 +390,25 @@ async def get_user_collections(
     Returns a list of collections with their IDs, names, and associated conversations.
     """
     try:
-        user_email = current_user.get('sub')
+        # If testing mode, use hardcoded email, otherwise use auth user
+        user_email = settings.APP.TEST_USER_EMAIL if settings.APP.TESTING_MODE else current_user.get('sub')
         logger.debug(f"Fetching collections for user {user_email}")
         
-        # Query collections with their conversations
+        # Rest of your code remains exactly the same
         collections = (
             db.query(ChatCollection)
             .filter(
                 ChatCollection.user_email == user_email,
-                ChatCollection.is_active == True
+                ChatCollection.is_active == True,
+                ChatCollection.platform == Platform.WEB
             )
             .options(joinedload(ChatCollection.conversations))
             .order_by(ChatCollection.created_at.desc())
             .all()
         )
         
-        # Format the response using the schema
         collection_responses = []
         for collection in collections:
-            # Format conversations for this collection
             conversations = [
                 ConversationBrief(
                     id=conv.id,
@@ -338,10 +417,9 @@ async def get_user_collections(
                     message_count=conv.message_count
                 )
                 for conv in collection.conversations
-                if conv.status != 'deleted'  # Exclude deleted conversations
+                if conv.status != 'deleted'
             ]
             
-            # Create collection response with conversations
             collection_response = ChatCollectionResponse(
                 id=collection.id,
                 collection_name=collection.collection_name,
@@ -360,23 +438,24 @@ async def get_user_collections(
             status_code=500,
             detail=f"Failed to fetch collections: {str(e)}"
         )
-        
+
 @router.get("/conversations/{conversation_id}", response_model=ConversationWithMessages)
 async def get_conversation_details(
     conversation_id: int,
     request: Request,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user) if not settings.APP.TESTING_MODE else None,
     db: Session = Depends(get_db)
 ):
     """
     Get complete conversation details including all messages, attachments, and artifacts.
     Requires authentication with JWT token.
     """
+    logger.debug("Request headers: %s", dict(request.headers))
+
     try:
-        user_email = current_user.get('sub')
+        user_email = settings.APP.TEST_USER_EMAIL if settings.APP.TESTING_MODE else current_user.get('sub')
         logger.debug(f"Fetching conversation {conversation_id} for user {user_email}")
         
-        # Use ConversationDB (the model) instead of Conversation
         conversation = (
             db.query(ConversationDB)
             .join(
@@ -397,7 +476,6 @@ async def get_conversation_details(
                 detail="Conversation not found or unauthorized access"
             )
         
-        # Query messages with eager loading
         messages = (
             db.query(Message)
             .options(
@@ -409,7 +487,6 @@ async def get_conversation_details(
             .all()
         )
         
-        # Format messages
         formatted_messages = []
         for msg in messages:
             msg_dict = {
@@ -447,7 +524,7 @@ async def get_conversation_details(
                         "component_type": msg.artifact.component_type,
                         "title": msg.artifact.title,
                         "description": msg.artifact.description,
-                        "data": msg.artifact.data,
+                        "data": msg.artifact.data or {}, 
                         "style": msg.artifact.style,
                         "configuration": msg.artifact.configuration,
                         "created_at": msg.artifact.created_at
@@ -456,7 +533,6 @@ async def get_conversation_details(
             }
             formatted_messages.append(MessageWithDetails(**msg_dict))
         
-        # Create response
         response_dict = {
             "id": conversation.id,
             "collection_id": conversation.collection_id,
@@ -470,6 +546,7 @@ async def get_conversation_details(
         
         conversation_response = ConversationWithMessages(**response_dict)
         
+        logger.info(f"Response : {response_dict}")
         logger.info(f"Successfully retrieved conversation {conversation_id} for user {user_email}")
         return conversation_response
         
@@ -480,4 +557,134 @@ async def get_conversation_details(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch conversation details: {str(e)}"
+        )
+
+@router.get("/artifacts/{artifact_id}", response_model=ArtifactResponse)
+async def get_artifact_details(
+    artifact_id: int = Path(..., description="The ID of the artifact to retrieve"),
+    current_user: dict = Depends(get_current_user) if not settings.APP.TESTING_MODE else None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get detailed information about a specific artifact by its ID.
+    Requires authentication with JWT token.
+    """
+    try:
+        user_email = settings.APP.TEST_USER_EMAIL if settings.APP.TESTING_MODE else current_user.get('sub')
+        logger.debug(f"Fetching artifact {artifact_id} details for user {user_email}")
+        
+        artifact = (
+            db.query(Artifact)
+            .join(Message, Message.id == Artifact.message_id)
+            .join(ConversationDB, ConversationDB.id == Message.conversation_id)
+            .join(ChatCollection, ChatCollection.id == ConversationDB.collection_id)
+            .filter(
+                Artifact.id == artifact_id,
+                ChatCollection.user_email == user_email,
+                ChatCollection.platform == Platform.WEB
+            )
+            .first()
+        )
+        
+        if not artifact:
+            logger.warning(f"Artifact {artifact_id} not found or unauthorized access by {user_email}")
+            raise HTTPException(
+                status_code=404,
+                detail="Artifact not found or unauthorized access"
+            )
+            
+        response = ArtifactResponse(
+            id=artifact.id,
+            message_id=artifact.message_id,
+            component_type=artifact.component_type,
+            sub_type=artifact.sub_type,
+            title=artifact.title,
+            description=artifact.description,
+            data=artifact.data,
+            style=artifact.style,
+            configuration=artifact.configuration,
+            created_at=artifact.created_at,
+            updated_at=artifact.updated_at
+        )
+        
+        logger.info(f"Successfully retrieved artifact {artifact_id} for user {user_email}")
+        return response
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Error fetching artifact details: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch artifact details: {str(e)}"
+        )        
+        
+@router.get("/conversations/{conversation_id}/artifacts", response_model=List[ArtifactResponse])
+async def get_conversation_artifacts(
+    conversation_id: int = Path(..., description="The ID of the conversation to get artifacts from"),
+    current_user: dict = Depends(get_current_user) if not settings.APP.TESTING_MODE else None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get all artifacts associated with a specific conversation.
+    Requires authentication with JWT token.
+    Returns a list of artifacts with their complete information.
+    """
+    try:
+        user_email = settings.APP.TEST_USER_EMAIL if settings.APP.TESTING_MODE else current_user.get('sub')
+        logger.debug(f"Fetching artifacts for conversation {conversation_id} for user {user_email}")
+        
+        conversation_exists = (
+            db.query(ConversationDB)
+            .join(ChatCollection)
+            .filter(
+                ConversationDB.id == conversation_id,
+                ChatCollection.user_email == user_email,
+                ChatCollection.platform == Platform.WEB
+            )
+            .first()
+        )
+        
+        if not conversation_exists:
+            logger.warning(f"Conversation {conversation_id} not found or unauthorized access by {user_email}")
+            raise HTTPException(
+                status_code=404,
+                detail="Conversation not found or unauthorized access"
+            )
+            
+        artifacts = (
+            db.query(Artifact)
+            .join(Message, Message.id == Artifact.message_id)
+            .filter(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at.desc(), Artifact.created_at.desc())
+            .all()
+        )
+        
+        artifact_responses = []
+        for artifact in artifacts:
+            artifact_response = ArtifactResponse(
+                id=artifact.id,
+                message_id=artifact.message_id,
+                component_type=artifact.component_type,
+                sub_type=artifact.sub_type,
+                title=artifact.title,
+                description=artifact.description,
+                data=artifact.data,
+                style=artifact.style,
+                configuration=artifact.configuration,
+                created_at=artifact.created_at,
+                updated_at=artifact.updated_at
+            )
+            artifact_responses.append(artifact_response)
+            
+        logger.info(f"Successfully retrieved {len(artifact_responses)} artifacts for conversation {conversation_id}")
+        return artifact_responses
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Error fetching conversation artifacts: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch conversation artifacts: {str(e)}"
         )

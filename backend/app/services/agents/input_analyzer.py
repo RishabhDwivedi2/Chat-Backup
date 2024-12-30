@@ -7,15 +7,12 @@ import mimetypes
 from pathlib import Path
 from app.services.gpt_service import GPTService
 import json
+from app.utils.json_handler import JSONHandler
 
 logger = logging.getLogger(__name__)
 
+
 class InputAnalyzer:
-    """
-    Agent responsible for analyzing input types and attachments in user queries using GPT,
-    returning detailed analysis along with metadata.
-    """
-    
     def __init__(self, gpt_service: GPTService):
         self.gpt_service = gpt_service
         self.supported_file_types = {
@@ -25,7 +22,6 @@ class InputAnalyzer:
             'spreadsheet': ['.xlsx', '.xls', '.csv'],
             'presentation': ['.ppt', '.pptx']
         }
-
         self.system_prompt = """You are an Input Analysis Agent. Your role is to:
             1. Analyze user queries and their attachments in the context of the conversation
             2. Identify the type and characteristics of each attachment
@@ -68,12 +64,8 @@ class InputAnalyzer:
                 temperature=0.2
             )
 
-            # Parse GPT's response
-            try:
-                gpt_analysis = json.loads(gpt_response)
-            except json.JSONDecodeError:
-                logger.error("Failed to parse GPT response as JSON")
-                gpt_analysis = self._extract_json_from_text(gpt_response)
+            # Use JSONHandler for parsing
+            gpt_analysis = JSONHandler.extract_clean_json(gpt_response)
 
             # Generate metadata for logging and response
             metadata = self._generate_metadata(gpt_analysis, query, attachments, conversation_history)
@@ -87,6 +79,7 @@ class InputAnalyzer:
         except Exception as e:
             logger.error(f"Error in input analysis: {str(e)}", exc_info=True)
             raise
+
 
     def _generate_metadata(
         self,

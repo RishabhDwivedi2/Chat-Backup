@@ -2,12 +2,10 @@
 
 const MINIO_ENDPOINT = 'http://localhost:9000';
 
-// Utility function to generate URL for files
 export const getFileUrl = (bucketName: string, objectName: string): string => {
     return `${MINIO_ENDPOINT}/${bucketName}/${objectName}`;
 };
 
-// Utility function to upload file
 export const uploadFile = async (bucketName: string, file: File): Promise<{ downloadUrl: string; storagePath: string }> => {
     try {
         const timestamp = Date.now();
@@ -40,7 +38,6 @@ export const uploadFile = async (bucketName: string, file: File): Promise<{ down
     }
 };
 
-// Utility function to delete file
 export const deleteFile = async (bucketName: string, storagePath: string): Promise<void> => {
     try {
         const response = await fetch(`${MINIO_ENDPOINT}/${bucketName}/${storagePath}`, {

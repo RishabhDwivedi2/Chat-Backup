@@ -39,67 +39,36 @@ export interface ArtifactItem {
     error?: string;
 }
 
-const getRandomColor = () => `#${Math.floor(Math.random() * 16777215).toString(16)}`;
-
-function transformChartData(rawData: any): TransformedChartData {
-    const {
-        title = '',
-        labels = [],
-        values = {},
-        style = {},
-        axis_labels = { x: '', y: '' },
-        config = {}
-    } = rawData;
-
-    // Handle both array and object formats for values
-    let datasets: ChartDataset[];
-    let data: any[];
-
-    if (Array.isArray(values)) {
-        // Single dataset case
-        datasets = [{
-            label: 'Value',
-            data: values,
-            color: getRandomColor()
-        }];
-
-        // Transform into recharts format
-        data = labels.map((label: string, index: number) => ({
-            name: label,
-            Value: values[index]
-        }));
-    } else {
-        // Multiple datasets case
-        datasets = Object.entries(values).map(([key, value]) => ({
-            label: key,
-            data: Array.isArray(value) ? value : [value],
-            color: getRandomColor()
-        }));
-
-        // Transform into recharts format
-        data = labels.map((label: string, index: number) => {
-            const dataPoint: { [key: string]: any } = { name: label };
-            datasets.forEach(dataset => {
-                dataPoint[dataset.label] = dataset.data[index];
-            });
-            return dataPoint;
+export function transformChartDataForRecharts(rawData: any): TransformedChartData {
+    const { labels, values, title, configuration } = rawData;
+    
+    const data = labels.map((label: string, idx: number) => {
+        const dataPoint: any = { name: label };
+        values.forEach((item: any) => {
+            dataPoint[item.entity] = item.data[idx];
         });
-    }
+        return dataPoint;
+    });
+
+    const datasets = values.map((item: any) => ({
+        label: item.entity,
+        data: item.data,
+        color: `#${Math.floor(Math.random()*16777215).toString(16)}`
+    }));
 
     return {
         title,
         data,
         datasets,
-        style: {
-            width: style.width || '100%',
-            height: style.height || '400px',
-            ...style
-        },
+        style: rawData.style || {},
         options: {
-            showGrid: config.show_grid ?? true,
-            showLegend: config.show_legend ?? true,
-            axisLabels: axis_labels,
-            interactive: config.interactive ?? true
+            showGrid: configuration?.axes?.showGrid ?? true,
+            showLegend: configuration?.legend ?? true,
+            axisLabels: {
+                x: configuration?.axes?.x?.title || '',
+                y: configuration?.axes?.y?.title || ''
+            },
+            interactive: true
         }
     };
 }
@@ -110,14 +79,13 @@ export function transformArtifactData(artifact: ArtifactItem): ArtifactItem {
 
         switch (component.toLowerCase()) {
             case 'chart': {
-                const transformedData = transformChartData(data);
+                const transformedData = transformChartDataForRecharts(data);
                 return {
                     ...artifact,
                     sub_type: sub_type,
                     data: transformedData
                 };
             }
-            // Add cases for other component types here
             default:
                 return artifact;
         }

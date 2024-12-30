@@ -15,7 +15,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parents[2]
 sys.path.append(str(PROJECT_ROOT))
 
-from backend.app.config import settings
+from backend.app.config.constants import settings
 
 import asyncio
 import asyncpg

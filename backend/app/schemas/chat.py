@@ -5,6 +5,10 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
 
+class Platform(str, Enum):
+    WEB = "web"
+    GMAIL = "gmail"
+    TELEGRAM = "telegram"
 
 # Enums
 class MessageRole(str, Enum):
@@ -37,6 +41,7 @@ class ConversationStatus(str, Enum):
 class ChatCollectionBase(BaseModel):
     collection_name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
+    platform: str = Field(default=Platform.WEB)  # Changed to use string type with default
 
 class ChatCollectionCreate(ChatCollectionBase):
     pass
@@ -56,6 +61,7 @@ class ChatCollection(ChatCollectionBase):
 class ConversationBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
+    thread_id: Optional[str] = None  # Added thread_id
 
 class ConversationCreate(ConversationBase):
     collection_id: int
@@ -67,6 +73,7 @@ class Conversation(ConversationBase):
     last_message_at: datetime
     is_archived: bool = False
     status: ConversationStatus
+    thread_id: Optional[str] = None  # Added thread_id
 
     class Config:
         from_attributes = True
@@ -136,6 +143,7 @@ class Attachment(AttachmentBase):
 class ArtifactBase(BaseModel):
     """Base Artifact schema with common attributes"""
     component_type: str
+    sub_type: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
     data: Dict[str, Any]
@@ -160,9 +168,10 @@ class ArtifactResponse(BaseModel):
     id: int
     message_id: int
     component_type: str
+    sub_type: Optional[str] = None
     title: Optional[str]
     description: Optional[str]
-    data: Dict[str, Any]
+    data: Optional[dict] = None
     style: Optional[Dict[str, Any]]
     configuration: Optional[Dict[str, Any]]
     created_at: datetime

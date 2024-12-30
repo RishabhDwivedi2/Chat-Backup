@@ -52,9 +52,13 @@ export function LoginForm() {
     
             const token = data.access_token;
             localStorage.setItem('token', token);
+        
+            // Store user info
+            localStorage.setItem('userId', data.user.id.toString());
+            localStorage.setItem('userEmail', data.user.email);
+            localStorage.setItem('userName', data.user.name); 
     
-            console.log("Stored token:", token);
-    
+            // Existing Zustand state updates
             setProfile(data.user.role_category);
             setUserName(data.user.name);
             setColor(data.user.color);

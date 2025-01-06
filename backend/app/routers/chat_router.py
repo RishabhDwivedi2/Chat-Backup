@@ -81,11 +81,12 @@ async def get_chat_response(
 
         start_time = datetime.utcnow()
 
-        # Handle conversation and history
+        # Initialize conversation variables
         conversation = None
         conversation_history = []
+        this_request_makes_platform_changed = False
         
-# Add this debug section at the start of platform detection
+        # Add platform detection debug section
         logger.info("=== PLATFORM DETECTION DEBUG ===")
         if hasattr(request.state, 'verified_data'):
             logger.info(f"Has verified_data: {True}")
@@ -102,17 +103,51 @@ async def get_chat_response(
         
         if hasattr(request.state, 'verified_data'):
             verified_data = request.state.verified_data
-            # Get platform directly from top level
             raw_platform = verified_data.get('platform', Platform.WEB)
             logger.info(f"Raw platform value: {raw_platform}")
             platform = Platform(raw_platform)
             
-            # Get Gmail-specific metadata
             metadata = verified_data.get('metadata', {})
             if platform == Platform.GMAIL:
                 thread_id = metadata.get('thread_id')
                 subject = metadata.get('subject')
                 logger.info(f"Gmail metadata found - Thread ID: {thread_id}, Subject: {subject}")
+
+                # Early check for Gmail requests to moved conversations
+                if thread_id:
+                    existing_conversation = chat_service.get_conversation_by_thread_id(thread_id)
+                    if existing_conversation:
+                        chat_collection = existing_conversation.collection
+                        
+                        # Check if this conversation has been moved to WEB
+                        if chat_collection.is_platform_changed and chat_collection.platform_changed == Platform.WEB.value:
+                            logger.info(f"Detected Gmail request for conversation moved to WEB. Thread ID: {thread_id}")
+                            
+                            # Create redirect URL
+                            redirect_url = f"http://localhost:3001/chat/{existing_conversation.id}"
+                            
+                            # Create hardcoded response
+                            response_data = {
+                                "message": {
+                                    "content": f"This conversation is no longer continued here. To continue, please click on this link: {redirect_url}",
+                                    "conversation_id": existing_conversation.id,
+                                    "is_redirect": True,
+                                    "redirect_url": redirect_url
+                                }
+                            }
+                            
+                            logger.info("\n=== GMAIL REDIRECT RESPONSE ===")
+                            logger.info(f"Conversation ID: {existing_conversation.id}")
+                            logger.info(f"Collection ID: {chat_collection.id}")
+                            logger.info(f"Redirect URL: {redirect_url}")
+                            logger.info(f"Response Data: {json.dumps(response_data, indent=2)}")
+
+                            return ChatResponse(
+                                response=json.dumps(response_data),
+                                conversation_id=existing_conversation.id,
+                                message_id=0,  # No message created for redirect
+                                this_request_makes_platform_changed=False
+                            )
         
         logger.info(f"Final platform determination: {platform.value}")
         
@@ -120,6 +155,26 @@ async def get_chat_response(
             conversation = chat_service.get_conversation(conversation_id)
             if not conversation:
                 raise HTTPException(status_code=404, detail="Conversation not found")
+
+            # Get associated chat collection and handle platform changes
+            chat_collection = conversation.collection
+            
+            # Check platform change scenarios only if is_platform_changed is False
+            if not chat_collection.is_platform_changed:
+                # If current platform is WEB and collection platform is GMAIL
+                if platform == Platform.WEB and chat_collection.platform == Platform.GMAIL.value:
+                    logger.info(f"Detected platform change from GMAIL to WEB for collection {chat_collection.id}")
+                    # Update chat collection
+                    chat_collection.platform_changed = platform.value
+                    chat_collection.is_platform_changed = True
+                    db.commit()
+                    this_request_makes_platform_changed = True
+                    logger.info(f"Updated platform change status for collection {chat_collection.id}")
+            
+            # Use platform_changed value if is_platform_changed is True
+            effective_platform = chat_collection.platform_changed if chat_collection.is_platform_changed else chat_collection.platform
+            logger.info(f"Using effective platform: {effective_platform}")
+
             messages = chat_service.get_conversation_messages(conversation_id)
             conversation_history = [
                 {
@@ -153,7 +208,6 @@ async def get_chat_response(
                     title = subject
                     logger.info(f"Using email subject as collection title: {title}")
                 else:
-                    # For web platform, generate title as before
                     title, _ = await title_generator.generate_unique_title(
                         prompt,
                         existing_titles=[],
@@ -161,11 +215,13 @@ async def get_chat_response(
                     )
                     logger.info(f"Generated title for web platform: {title}")
                 
-                # Create collection with proper platform
+                # Create collection with proper platform and new fields
                 collection_data = ChatCollectionCreate(
                     collection_name=title,
                     description="Auto-generated chat collection",
-                    platform=platform.value  # Ensure platform is properly set
+                    platform=platform.value,
+                    platform_changed=None,  # Initialize as None
+                    is_platform_changed=False  # Initialize as False
                 )
                 
                 try:
@@ -181,7 +237,6 @@ async def get_chat_response(
                         detail="Failed to create chat collection"
                     )
                 
-                # Create conversation with thread_id for Gmail
                 conversation_data = ConversationCreate(
                     collection_id=new_collection.id,
                     title=title,
@@ -191,7 +246,7 @@ async def get_chat_response(
                 conversation = chat_service.create_conversation(conversation_data)
                 logger.info(f"Created new conversation with thread_id: {thread_id if platform == Platform.GMAIL else 'None'}")
 
-        # [Rest of the code remains exactly the same...]
+        # Create user message
         user_message = chat_service.create_message(MessageCreate(
             conversation_id=conversation.id,
             role="user",
@@ -220,8 +275,6 @@ async def get_chat_response(
         else:
             logger.info("No attachments received")
             
-        logger.debug(f"Received chat request with prompt: {prompt[:100]}...")
-        
         # Handle attachments
         stored_attachments = []
         if attachments:
@@ -260,15 +313,6 @@ async def get_chat_response(
         logger.info("\n=== WORKFLOW DECIDER IN CHAT ROUTER ===")
         logger.info(f"Workflow Decision Metadata: {json.dumps(decision_metadata, indent=2)}")
         
-        response_data = {
-            "message": {
-                "content": None,
-                "conversation_id": conversation.id,
-                "has_artifact": False,
-                "artifact_id": None
-            }
-        }
-
         logger.info("\n=== PARENT AGENT IN CHAT ROUTER ===")
 
         if decision_metadata["selected_agent"] == "ParentAgent":
@@ -313,6 +357,7 @@ async def get_chat_response(
 
             logger.info(f"Structured Response Generated: {json.dumps(structured_response, indent=2)}")
 
+        # Create assistant message
         assistant_message = chat_service.create_message(MessageCreate(
             conversation_id=conversation.id,
             role="assistant",
@@ -323,7 +368,7 @@ async def get_chat_response(
                 "timestamp": datetime.utcnow().isoformat(),
                 "agent": decision_metadata["selected_agent"],
                 "structured_response": structured_response,
-                "platform": platform.value  # Add platform to message metadata
+                "platform": platform.value
             },
             has_artifact=structured_response.get("has_artifact", False)  
         ))
@@ -332,7 +377,8 @@ async def get_chat_response(
             "message": {
                 "id": assistant_message.id,
                 "conversation_id": conversation.id,
-                "structured_response": structured_response  
+                "structured_response": structured_response,
+                "this_request_makes_platform_changed": this_request_makes_platform_changed
             }
         }
 
@@ -363,11 +409,13 @@ async def get_chat_response(
 
         logger.info("=== FINAL STRUCTURED RESPONSE AFTER ARTIFACT CREATION ===")
         logger.info(json.dumps(structured_response, indent=2))
+        logger.info(f"Platform Change Made in This Request: {this_request_makes_platform_changed}")
 
         return ChatResponse(
             response=json.dumps(response_data),
             conversation_id=conversation.id,
-            message_id=assistant_message.id
+            message_id=assistant_message.id,
+            this_request_makes_platform_changed=this_request_makes_platform_changed
         )
 
     except HTTPException as he:
@@ -378,29 +426,23 @@ async def get_chat_response(
             status_code=500,
             detail=f"Failed to process chat request: {str(e)}"
         )
-        
+
+# Update the get_user_collections endpoint with null handling
 @router.get("/collections", response_model=List[ChatCollectionResponse])
 async def get_user_collections(
     request: Request,
     current_user: dict = Depends(get_current_user) if not settings.APP.TESTING_MODE else None,
     db: Session = Depends(get_db)
 ):
-    """
-    Get all chat collections for the authenticated user.
-    Returns a list of collections with their IDs, names, and associated conversations.
-    """
     try:
-        # If testing mode, use hardcoded email, otherwise use auth user
         user_email = settings.APP.TEST_USER_EMAIL if settings.APP.TESTING_MODE else current_user.get('sub')
         logger.debug(f"Fetching collections for user {user_email}")
         
-        # Rest of your code remains exactly the same
         collections = (
             db.query(ChatCollection)
             .filter(
                 ChatCollection.user_email == user_email,
-                ChatCollection.is_active == True,
-                ChatCollection.platform == Platform.WEB
+                ChatCollection.is_active == True
             )
             .options(joinedload(ChatCollection.conversations))
             .order_by(ChatCollection.created_at.desc())
@@ -420,16 +462,19 @@ async def get_user_collections(
                 if conv.status != 'deleted'
             ]
             
+            # Handle potential None values with defaults
             collection_response = ChatCollectionResponse(
                 id=collection.id,
                 collection_name=collection.collection_name,
                 created_at=collection.created_at,
                 conversation_count=collection.conversation_count,
+                platform=collection.platform,
+                platform_changed=collection.platform_changed if hasattr(collection, 'platform_changed') else None,
+                is_platform_changed=collection.is_platform_changed if hasattr(collection, 'is_platform_changed') else None,
                 conversations=conversations
             )
             collection_responses.append(collection_response)
         
-        logger.info(f"Successfully retrieved {len(collection_responses)} collections with their conversations for user {user_email}")
         return collection_responses
         
     except Exception as e:
@@ -439,6 +484,7 @@ async def get_user_collections(
             detail=f"Failed to fetch collections: {str(e)}"
         )
 
+# Update the get_conversation_details endpoint with null handling
 @router.get("/conversations/{conversation_id}", response_model=ConversationWithMessages)
 async def get_conversation_details(
     conversation_id: int,
@@ -446,12 +492,6 @@ async def get_conversation_details(
     current_user: dict = Depends(get_current_user) if not settings.APP.TESTING_MODE else None,
     db: Session = Depends(get_db)
 ):
-    """
-    Get complete conversation details including all messages, attachments, and artifacts.
-    Requires authentication with JWT token.
-    """
-    logger.debug("Request headers: %s", dict(request.headers))
-
     try:
         user_email = settings.APP.TEST_USER_EMAIL if settings.APP.TESTING_MODE else current_user.get('sub')
         logger.debug(f"Fetching conversation {conversation_id} for user {user_email}")
@@ -475,6 +515,9 @@ async def get_conversation_details(
                 status_code=404, 
                 detail="Conversation not found or unauthorized access"
             )
+        
+        # Get the chat collection for platform info
+        chat_collection = conversation.collection
         
         messages = (
             db.query(Message)
@@ -533,6 +576,7 @@ async def get_conversation_details(
             }
             formatted_messages.append(MessageWithDetails(**msg_dict))
         
+        # Handle potential None values with defaults
         response_dict = {
             "id": conversation.id,
             "collection_id": conversation.collection_id,
@@ -541,13 +585,13 @@ async def get_conversation_details(
             "created_at": conversation.created_at,
             "last_message_at": conversation.last_message_at,
             "status": conversation.status,
-            "messages": formatted_messages
+            "messages": formatted_messages,
+            "platform": chat_collection.platform,
+            "platform_changed": chat_collection.platform_changed if hasattr(chat_collection, 'platform_changed') else None,
+            "is_platform_changed": chat_collection.is_platform_changed if hasattr(chat_collection, 'is_platform_changed') else None
         }
         
         conversation_response = ConversationWithMessages(**response_dict)
-        
-        logger.info(f"Response : {response_dict}")
-        logger.info(f"Successfully retrieved conversation {conversation_id} for user {user_email}")
         return conversation_response
         
     except HTTPException as he:
@@ -580,8 +624,7 @@ async def get_artifact_details(
             .join(ChatCollection, ChatCollection.id == ConversationDB.collection_id)
             .filter(
                 Artifact.id == artifact_id,
-                ChatCollection.user_email == user_email,
-                ChatCollection.platform == Platform.WEB
+                ChatCollection.user_email == user_email
             )
             .first()
         )
@@ -639,8 +682,7 @@ async def get_conversation_artifacts(
             .join(ChatCollection)
             .filter(
                 ConversationDB.id == conversation_id,
-                ChatCollection.user_email == user_email,
-                ChatCollection.platform == Platform.WEB
+                ChatCollection.user_email == user_email
             )
             .first()
         )

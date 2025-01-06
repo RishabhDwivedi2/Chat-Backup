@@ -341,6 +341,19 @@ const PanelRenderer: React.FC = () => {
     }, [fetchChatHistory]);
 
 
+    const handlePlatformChange = (isPlatformChanged: boolean, platform?: string) => {
+        if (isPlatformChanged && platform) {
+            toast({
+                title: "Platform Changed",
+                description: `This conversation will no longer continue via ${platform}`,
+                variant: "default",
+                className: "font-poppins",
+                duration: 5000,
+                action: <ToastAction altText="Okay">Okay</ToastAction>,
+            });
+        }
+    };
+
     return (
         <TooltipProvider>
             <div className="flex h-screen w-full font-poppins">
@@ -433,6 +446,7 @@ const PanelRenderer: React.FC = () => {
                                     onNewArtifact={handleNewArtifact}
                                     onRefreshHistory={fetchChatHistory}
                                     onSetActiveConversation={setActiveConversationId}
+                                    onConversationPlatformChange={handlePlatformChange}
                                 />
                             )}
 

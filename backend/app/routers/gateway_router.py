@@ -12,14 +12,6 @@ from typing import Dict
 from app.services.platform_verifier import PlatformVerifier
 from app.cache.session_manager import session_manager
 import json
-from app.services.chat_service import ChatService
-from app.config import settings
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from email.mime.text import MIMEText
-import base64
-from google.oauth2.credentials import Credentials
-from app.services.gmail_service import GmailService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

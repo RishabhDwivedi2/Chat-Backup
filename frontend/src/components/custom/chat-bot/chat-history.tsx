@@ -7,20 +7,14 @@ import AnimatedShinyText from '@/components/magicui/animated-shiny-text';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { motion, AnimatePresence } from 'framer-motion';
 import { differenceInDays, format, isSameDay, isYesterday } from 'date-fns';
+import { useRouter } from 'next/navigation';
+import { ChatCollection } from '@/types/chat';
 
 interface Conversation {
     id: number;
     title: string;
     last_message_at: string;
     message_count: number;
-}
-
-interface ChatCollection {
-    id: number;
-    collection_name: string;
-    created_at: string;
-    conversation_count: number;
-    conversations: Conversation[];
 }
 
 interface ChatHistoryProps {
@@ -41,6 +35,28 @@ interface ChatHistoryProps {
     setArtifactsData: React.Dispatch<React.SetStateAction<any>>;
 }
 
+import { Globe, Mail, MessageSquare, ArrowRightLeft, Send } from 'lucide-react';
+
+const PlatformIcon: React.FC<{
+    platform: string,
+    platformChanged?: string | null,
+    className?: string
+}> = ({ platform, platformChanged, className = "w-4 h-4 mr-3" }) => {
+    // Use platformChanged if it exists, otherwise use platform
+    const effectivePlatform = platformChanged || platform;
+
+    switch (effectivePlatform.toLowerCase()) {
+        case 'web':
+            return <Globe className={`${className} text-blue-500`} />;
+        case 'gmail':
+            return <Mail className={`${className} text-red-500`} />;
+        case 'telegram':
+            return <Send className={`${className} text-sky-500`} />;
+        default:
+            return <MessageSquare className={className} />;
+    }
+};
+
 export default function ChatHistory({
     className,
     onClose,
@@ -60,6 +76,7 @@ export default function ChatHistory({
     const [selectedChatId, setSelectedChatId] = useState<number | null>(activeConversationId || null);
     const [userEmail, setUserEmail] = useState<string>('');
     const [userInitials, setUserInitials] = useState<string>('');
+    const router = useRouter();
 
     useEffect(() => {
         const email = localStorage.getItem('userEmail') || '';
@@ -98,6 +115,10 @@ export default function ChatHistory({
         const conversationId = collection.conversations[0].id;
         setSelectedChatId(conversationId);
         localStorage.setItem('currentConversationId', conversationId.toString());
+
+        // Add this: Update URL to reflect the chat ID
+        router.push(`/chat/${conversationId}`);
+
         await loadConversation(conversationId);
     };
 
@@ -152,18 +173,30 @@ export default function ChatHistory({
             });
 
             onConversationSelect(formattedMessages, conversationId);
+
+            if (data.is_platform_changed) {
+                const platformChangeEvent = new CustomEvent('conversationPlatformChange', {
+                    detail: {
+                        isPlatformChanged: true,
+                        platform: data.platform,
+                        previousPlatform: data.platform_changed || 'previous platform'
+                    }
+                });
+                window.dispatchEvent(platformChangeEvent);
+            }
         } catch (error) {
             console.error('Error loading conversation:', error);
         }
     };
-
 
     const handleNewChat = () => {
         setSelectedChatId(null);
         localStorage.removeItem('currentConversationId');
         onShowChatArtifacts(false);
         setArtifactsData(null);
+
         onNewChat();
+        router.push('/new');
     };
 
     const groupCollectionsByDate = (collections: ChatCollection[]) => {
@@ -280,13 +313,28 @@ export default function ChatHistory({
                                                     <li
                                                         key={collection.id}
                                                         onClick={() => handleChatClick(collection)}
-                                                        className={`flex items-center py-2 px-3 hover:bg-accent hover:text-accent-foreground rounded-md cursor-pointer group
-                                                            ${isSelected ? 'bg-accent text-accent-foreground' : ''}`}
+                                                        className={`
+                                                                flex items-center py-2 px-3 
+                                                                hover:bg-accent hover:text-accent-foreground 
+                                                                rounded-md cursor-pointer group
+                                                                ${isSelected ? 'bg-accent text-accent-foreground' : ''}
+                                                            `}
                                                     >
-                                                        <MessageSquareText className="w-4 h-4 mr-3 flex-shrink-0" />
-                                                        <span className="text-sm line-clamp-1 break-words">
-                                                            {collection.collection_name}
-                                                        </span>
+                                                        {/* Icon wrapper with fixed width */}
+                                                        <div className="flex-shrink-0 w-7">
+                                                            <PlatformIcon
+                                                                platform={collection.platform}
+                                                                platformChanged={collection.platform_changed}
+                                                                className="w-4 h-4"
+                                                            />
+                                                        </div>
+
+                                                        {/* Text container with more space and two-line truncation */}
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="text-sm line-clamp-1 break-words">
+                                                                {collection.collection_name}
+                                                            </p>
+                                                        </div>
                                                     </li>
                                                 );
                                             })}

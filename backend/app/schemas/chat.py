@@ -39,12 +39,21 @@ class ConversationStatus(str, Enum):
     DELETED = "deleted"
 
 class ChatCollectionBase(BaseModel):
-    collection_name: str = Field(..., min_length=1, max_length=255)
+    collection_name: str
     description: Optional[str] = None
-    platform: str = Field(default=Platform.WEB)  # Changed to use string type with default
+    platform: str = Field(default=Platform.WEB.value)
+    platform_changed: Optional[str] = None
+    is_platform_changed: bool = False
 
 class ChatCollectionCreate(ChatCollectionBase):
     pass
+
+class ChatCollectionUpdate(BaseModel):
+    collection_name: Optional[str] = None
+    description: Optional[str] = None
+    platform: Optional[str] = None
+    platform_changed: Optional[str] = None
+    is_platform_changed: Optional[bool] = None
 
 class ChatCollection(ChatCollectionBase):
     id: int
@@ -216,11 +225,15 @@ class ConversationBrief(BaseModel):
     class Config:
         from_attributes = True
         
+# Update the ChatCollectionResponse schema to handle nullable fields
 class ChatCollectionResponse(BaseModel):
     id: int
     collection_name: str
     created_at: datetime
     conversation_count: int
+    platform: str
+    platform_changed: Optional[str] = None
+    is_platform_changed: Optional[bool] = None  # Changed to Optional with None default
     conversations: List[ConversationBrief] = []
 
     class Config:
@@ -247,6 +260,9 @@ class MessageWithDetails(Message):
 
 class ConversationWithMessages(Conversation):
     messages: List[MessageWithDetails] = []
+    platform: str
+    platform_changed: Optional[str] = None
+    is_platform_changed: Optional[bool] = None 
 
 class ChatCollectionWithConversations(ChatCollection):
     conversations: List[ConversationResponse] = []

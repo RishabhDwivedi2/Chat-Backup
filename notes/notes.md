@@ -181,3 +181,21 @@ GitHub Commands for Pushing files initially :
 6. git push -u origin main
 
 
+
+
+
+
+
+Redis Commands :
+
+1. Check its status:
+	- sudo service redis-server status
+
+2. To stop Redis:
+	- sudo service redis-server stop
+
+3. To restart Redis:
+	- sudo service redis-server restart
+
+4. To check Redis CLI:
+	- redis-cli

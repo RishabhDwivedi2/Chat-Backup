@@ -63,3 +63,4 @@ class ChatResponse(BaseModel):
     response: str
     conversation_id: int
     message_id: int
+    this_request_makes_platform_changed: bool = False

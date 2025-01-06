@@ -16,33 +16,49 @@ class ChatService:
         self.db = db
 
     def create_chat_collection(self, user_email: str, collection_data: ChatCollectionCreate) -> ChatCollection:
-        """Create a new chat collection for a user"""
+        """Create a new chat collection with platform change handling"""
         try:
-            collection = ChatCollection(
+            db_collection = ChatCollection(
                 user_email=user_email,
                 collection_name=collection_data.collection_name,
                 description=collection_data.description,
                 platform=collection_data.platform,  # Add this line
+                platform_changed=collection_data.platform_changed,  # New field
+                is_platform_changed=collection_data.is_platform_changed,  # New field
                 created_at=datetime.utcnow(),
                 last_accessed=datetime.utcnow(),
                 is_active=True,
                 conversation_count=0
             )
-            
-            self.db.add(collection)
+            self.db.add(db_collection)
+            self.db.commit()
+            self.db.refresh(db_collection)
+            return db_collection
+        except Exception as e:
+            logger.error(f"Error creating chat collection: {str(e)}")
+            self.db.rollback()
+            raise
+
+    def update_chat_collection(self, collection_id: int, platform_changed: Optional[str] = None, 
+                             is_platform_changed: Optional[bool] = None) -> ChatCollection:
+        """Update chat collection platform change status"""
+        try:
+            collection = self.db.query(ChatCollection).filter(ChatCollection.id == collection_id).first()
+            if not collection:
+                raise ValueError(f"Collection {collection_id} not found")
+
+            if platform_changed is not None:
+                collection.platform_changed = platform_changed
+            if is_platform_changed is not None:
+                collection.is_platform_changed = is_platform_changed
+
             self.db.commit()
             self.db.refresh(collection)
-            
-            logger.info(f"Created new collection '{collection_data.collection_name}' for user {user_email} on platform {collection_data.platform}")
             return collection
-                
         except Exception as e:
+            logger.error(f"Error updating chat collection: {str(e)}")
             self.db.rollback()
-            logger.error(f"Error creating chat collection: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to create chat collection: {str(e)}"
-            )
+            raise
 
     def get_user_collections(self, user_email: str) -> list[ChatCollection]:
         """Get all active collections for a user"""
@@ -276,11 +292,14 @@ class ChatService:
             logger.error(f"Error in get_collection_and_first_conversation: {str(e)}")
             return None
     
+    def get_chat_collection(self, collection_id: int) -> Optional[ChatCollection]:
+        """Get chat collection by ID"""
+        return self.db.query(ChatCollection).filter(ChatCollection.id == collection_id).first()
+
     def get_conversation_by_thread_id(self, thread_id: str) -> Optional[Conversation]:
-        """Get a conversation by its Gmail thread ID"""
-        try:
-            return self.db.query(Conversation).filter_by(thread_id=thread_id).first()
-        except Exception as e:
-            logger.error(f"Error fetching conversation by thread_id: {str(e)}")
-            return None    
-        
+        """Get conversation by Gmail thread ID"""
+        return (
+            self.db.query(Conversation)
+            .filter(Conversation.thread_id == thread_id)
+            .first()
+        )

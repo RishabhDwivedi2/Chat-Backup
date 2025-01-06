@@ -28,8 +28,9 @@ class ChatCollection(Base):
     conversation_count = Column(Integer, default=0)
     description = Column(Text)
     
-    platform = Column(String(10), nullable=False, default=Platform.WEB.value)  # Changed to String for now
-
+    platform = Column(Text, nullable=False, default=Platform.WEB.value)
+    platform_changed = Column(Text, nullable=True)
+    is_platform_changed = Column(Boolean, default=False)  # Renamed column with default False
 
     # Relationships
     user = relationship("User", back_populates="chat_collections")

@@ -53,6 +53,7 @@ interface ChatContainerProps {
     onNewArtifact: (artifact: Artifact) => void;
     onRefreshHistory: () => Promise<void>;
     onSetActiveConversation: (conversationId: number) => void;
+    onConversationPlatformChange?: (isPlatformChanged: boolean, platform?: string) => void;
 }
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -77,7 +78,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     isMobile,
     onNewArtifact,
     onRefreshHistory,
-    onSetActiveConversation
+    onSetActiveConversation,
+    onConversationPlatformChange
 }) => {
     const { toast } = useToast();
     const [inputMessage, setInputMessage] = useState("");
@@ -116,6 +118,22 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             window.removeEventListener('storage', handleStorageChange);
         };
     }, []);
+
+    useEffect(() => {
+        const handlePlatformChange = (event: CustomEvent) => {
+            const { isPlatformChanged, platform, previousPlatform } = event.detail;
+            
+            if (isPlatformChanged && onConversationPlatformChange) {
+                onConversationPlatformChange(isPlatformChanged, platform);
+            }
+        };
+
+        window.addEventListener('conversationPlatformChange', handlePlatformChange as EventListener);
+        
+        return () => {
+            window.removeEventListener('conversationPlatformChange', handlePlatformChange as EventListener);
+        };
+    }, [onConversationPlatformChange]);
 
     const adjustTextareaHeight = (textarea: HTMLTextAreaElement) => {
         textarea.style.height = "auto";
@@ -161,7 +179,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         setMessages((prevMessages) =>
             prevMessages.map((msg, i, arr) =>
                 i === arr.length - 1 && msg.role === "assistant"
-                    ? { ...msg, content: text }
+                    ? { ...msg, content: text } // Ensure this is a valid Message type
                     : msg
             )
         );
@@ -193,24 +211,24 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 console.groupEnd();
             }
     
-            const newUserMessage = {
+            const newUserMessage: Message = { // Ensure this is a valid Message type
                 id: `msg-${Date.now()}`,
                 role: "user",
                 content: inputMessage,
                 files: files
             };
-            setMessages((prevMessages) => [...prevMessages, newUserMessage]);
+            setMessages((prevMessages) => [...prevMessages, newUserMessage]);    
     
             setInputMessage("");
             setAttachedFiles([]);
     
-            const pendingAssistantMessage = {
+            const pendingAssistantMessage: Message = { // Ensure this is a valid Message type
                 id: `msg-${Date.now()}-pending`,
                 role: "assistant_pending",
                 content: "Assistant is analyzing..."
             };
             setMessages((prevMessages) => [...prevMessages, pendingAssistantMessage]);
-            scrollToBottom();
+            scrollToBottom();    
     
             const analysisId = `analysis-${Date.now()}`;
     
@@ -298,6 +316,18 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 const parsedResponse = JSON.parse(chatData.response);
     
                 console.log("Response Conversation ID:", parsedResponse.message.conversation_id);
+                console.log("Platform Changed:", parsedResponse.message.this_request_makes_platform_changed);
+
+                if (parsedResponse.message.this_request_makes_platform_changed) {
+                    toast({
+                        title: "Platform Updated",
+                        className: "font-poppins",
+                        description: "This conversation has been updated from GMAIL to WEB",
+                        variant: "default",
+                        duration: 5000,
+                        action: <ToastAction altText="Okay">Okay</ToastAction>
+                    });
+                }                
     
                 if (parsedResponse.message.conversation_id) {
                     const newConversationId = String(parsedResponse.message.conversation_id);
@@ -313,7 +343,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                 console.log("Structured Response:", structuredResponse);
     
                 // Create the assistant message with potential artifact information
-                const assistantMessage = {
+                const assistantMessage: Message = { // Ensure this is a valid Message type
                     id: `msg-${chatData.message_id || Date.now()}`,
                     role: "assistant",
                     content: "",

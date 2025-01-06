@@ -22,14 +22,42 @@ from app.utils.schema_generator import generate_schema
 from app.models.user import User
 from app.models.chat import ChatCollection, Conversation, Message
 from app.routers.gmail_router import router as gmail_router
+from app.services.redis.redis_service import RedisService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 bearer_scheme = HTTPBearer()  
 token_verifier = TokenVerifier()
+redis_service = RedisService()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for FastAPI application
+    Handles startup and shutdown events
+    """
+    # Startup
+    logger.info("Starting up application...")
+    
+    # Check Redis status on startup
+    if redis_service._init_redis():
+        logger.info("✅ Redis connection established successfully")
+    else:
+        logger.warning("⚠️ Redis connection failed - running without Redis")
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down application...")
+    try:
+        redis_service.close()
+        logger.info("Successfully cleaned up Redis connection")
+    except Exception as e:
+        logger.error(f"Error during shutdown cleanup: {str(e)}")
    
 app = FastAPI(
+    lifespan=lifespan,
     title=settings.PROJECT.NAME,
     debug=settings.ENV.DEBUG,
     openapi_tags=[{
@@ -73,7 +101,10 @@ BASE_PUBLIC_PATHS = [
     "/auth/google",
     "/setup-gmail-watch",
     "/watch-gmail",
-    "/gmail-webhook"
+    "/gmail-webhook",
+    "/auth/status",
+    "/auth/google/callback",
+    "/clear-tokens"
 ]
 
 # Chat router paths that should be public in testing mode

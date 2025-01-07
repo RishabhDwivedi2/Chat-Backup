@@ -65,5 +65,23 @@ if 'GMAIL' not in settings:
 settings['GMAIL'].update(env_settings.get('GMAIL', {}))
 settings['GMAIL'].update(secret_settings.get('GMAIL', {}))
 
+# Ensure SMTP settings are properly initialized
+if 'SMTP' not in settings['GMAIL']:
+    settings['GMAIL']['SMTP'] = {}
 
-    
+# Update SMTP settings from environment and secret settings
+if 'GMAIL' in env_settings and 'SMTP' in env_settings['GMAIL']:
+    settings['GMAIL']['SMTP'].update(env_settings['GMAIL']['SMTP'])
+if 'GMAIL' in secret_settings and 'SMTP' in secret_settings['GMAIL']:
+    settings['GMAIL']['SMTP'].update(secret_settings['GMAIL']['SMTP'])
+
+# Validate required SMTP settings
+required_smtp_settings = ['EMAIL', 'PASSWORD', 'SERVER', 'PORT']
+missing_settings = [setting for setting in required_smtp_settings 
+                   if setting not in settings['GMAIL']['SMTP']]
+
+if missing_settings:
+    logger.error(f"Missing required SMTP settings: {', '.join(missing_settings)}")
+    raise ValueError(f"Missing required SMTP settings: {', '.join(missing_settings)}")
+
+logger.info("Gmail SMTP configuration loaded successfully")

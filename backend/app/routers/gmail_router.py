@@ -17,13 +17,15 @@ from datetime import datetime, timedelta
 from app.routers.gateway_router import gmail_entry
 from app.services.redis.redis_service import RedisService
 from app.services.redis.token_manager import TokenManager
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 redis_service = RedisService()
 token_manager = TokenManager()
 
-# Load Gmail OAuth client secrets from settings
 CLIENT_CONFIG = {
     "web": {
         "client_id": settings.GMAIL.CLIENT_ID,
@@ -36,10 +38,14 @@ CLIENT_CONFIG = {
     }
 }
 
-# OAuth2 scope for Gmail API
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly', 
           'https://www.googleapis.com/auth/gmail.send',
           "https://www.googleapis.com/auth/gmail.modify"]
+
+SMTP_EMAIL = settings.GMAIL.SMTP.EMAIL
+SMTP_PASSWORD = settings.GMAIL.SMTP.PASSWORD
+SMTP_SERVER = settings.GMAIL.SMTP.SERVER
+SMTP_PORT = settings.GMAIL.SMTP.PORT
 
 # Add a processed message cache
 last_processed_history_id = None
@@ -294,8 +300,10 @@ def extract_email_address(from_header):
     """Extract email address from From header"""
     return from_header.split('<')[1].strip('>') if '<' in from_header else from_header
 
+# Update this function
 def create_email_message(to: str, subject: str, body: str, thread_headers: dict = None):
     """Create an email message with proper headers for threading"""
+    message = MIMEMultipart()
     formatted_body = f"""Here's your AI response:
 
     {body}
@@ -303,10 +311,10 @@ def create_email_message(to: str, subject: str, body: str, thread_headers: dict 
     --
     This is an automated response"""
 
-    message = MIMEText(formatted_body)
-    message['to'] = to
-    message['subject'] = subject
-    message['from'] = "chatbot@resohub.ai"
+    message.attach(MIMEText(formatted_body, 'plain'))
+    message['To'] = to
+    message['Subject'] = subject
+    message['From'] = f"DeltaBots Assistant <{SMTP_EMAIL}>"
     
     new_message_id = f"<{int(time.time())}@gmail.com>"
     message['Message-ID'] = new_message_id
@@ -327,6 +335,7 @@ def create_email_message(to: str, subject: str, body: str, thread_headers: dict 
     
     return message
 
+# Update this function
 async def process_and_send_email_response(chat_response, email_metadata, service, db):
     """Process chat response and send email"""
     try:
@@ -349,16 +358,13 @@ async def process_and_send_email_response(chat_response, email_metadata, service
             }
         )
 
-        send_params = {
-            'userId': 'me',
-            'body': {'raw': base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')}
-        }
-        
-        if email_metadata['thread_id']:
-            send_params['body']['threadId'] = email_metadata['thread_id']
-        
-        service.users().messages().send(**send_params).execute()
-        logger.info(f"Successfully sent email response to {email_metadata['from_email']}")
+        # Send via SMTP instead of Gmail API
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as smtp_server:
+            smtp_server.starttls()
+            smtp_server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            smtp_server.send_message(message)
+            
+        logger.info(f"Successfully sent email response via SMTP to {email_metadata['from_email']}")
         
     except Exception as e:
         logger.error(f"Error processing and sending email: {str(e)}")

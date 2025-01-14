@@ -23,6 +23,7 @@ from app.models.user import User
 from app.models.chat import ChatCollection, Conversation, Message
 from app.routers.gmail_router import router as gmail_router
 from app.services.redis.redis_service import RedisService
+from app.routers.chat_admin_router import router as chat_admin_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -104,7 +105,9 @@ BASE_PUBLIC_PATHS = [
     "/gmail-webhook",
     "/auth/status",
     "/auth/google/callback",
-    "/clear-tokens"
+    "/clear-tokens",
+    "/clear-gmail-watch",
+    "/reset-gmail-auth"
 ]
 
 # Chat router paths that should be public in testing mode
@@ -250,7 +253,8 @@ app.include_router(user_router.router, prefix="/api/users", tags=["users"])
 app.include_router(entries.router, prefix="/api/entries", tags=["entries"])
 app.include_router(chat_router.router, prefix="/api/chat", tags=["chat"]) 
 app.include_router(gateway_router, prefix="/api/gateway", tags=["gateway"])
-app.include_router(gmail_router)  # Remove the prefix="/api/v1"
+app.include_router(gmail_router)  
+app.include_router(chat_admin_router, prefix="/api/chat-admin", tags=["chat-admin"])
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):

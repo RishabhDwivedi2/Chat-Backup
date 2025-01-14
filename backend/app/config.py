@@ -1,5 +1,3 @@
-# app/config.py
-
 import os
 from pathlib import Path
 from dynaconf import Dynaconf
@@ -20,6 +18,7 @@ settings.update(base_settings.as_dict())
 settings.update(env_settings.as_dict())
 settings.update(secret_settings.as_dict())
 
+# JWT Configuration
 if 'JWT' not in settings:
     settings['JWT'] = {
         'SECRET_KEY': settings.get('SECRET_KEY', {}).get('SECRET_KEY'),
@@ -49,11 +48,10 @@ DATABASE_URL = (
 )
 settings.DATABASE.URL = DATABASE_URL
 
-logger.info(f"Database URL configured for local PostgreSQL")
-
+# App Configuration
 if 'APP' not in settings:
     settings['APP'] = {
-        'TESTING_MODE': False  # Default to False
+        'TESTING_MODE': False
     }
 logger.info(f"Testing Mode Status: {settings.APP.TESTING_MODE}")
 logger.info(f"Test User Email: {settings.APP.TEST_USER_EMAIL}")
@@ -84,4 +82,33 @@ if missing_settings:
     logger.error(f"Missing required SMTP settings: {', '.join(missing_settings)}")
     raise ValueError(f"Missing required SMTP settings: {', '.join(missing_settings)}")
 
+# Google Workspace Configuration
+if 'GOOGLE_WORKSPACE' not in settings:
+    settings['GOOGLE_WORKSPACE'] = {}
+
+settings['GOOGLE_WORKSPACE'].update(env_settings.get('GOOGLE_WORKSPACE', {}))
+settings['GOOGLE_WORKSPACE'].update(secret_settings.get('GOOGLE_WORKSPACE', {}))
+
+# Validate Google Workspace settings
+required_workspace_settings = ['SERVICE_ACCOUNT_FILE', 'ADMIN_EMAIL', 'DOMAIN']
+missing_workspace_settings = [setting for setting in required_workspace_settings
+                            if setting not in settings['GOOGLE_WORKSPACE']]
+
+if missing_workspace_settings:
+    logger.error(f"Missing required Google Workspace settings: {', '.join(missing_workspace_settings)}")
+    raise ValueError(f"Missing required Google Workspace settings: {', '.join(missing_workspace_settings)}")
+
+# Validate service account file exists
+service_account_path = Path(settings.GOOGLE_WORKSPACE.SERVICE_ACCOUNT_FILE)
+if not service_account_path.is_absolute():
+    service_account_path = PROJECT_ROOT / settings.GOOGLE_WORKSPACE.SERVICE_ACCOUNT_FILE
+
+if not service_account_path.exists():
+    logger.error(f"Service account file not found at: {service_account_path}")
+    raise FileNotFoundError(f"Service account file not found at: {service_account_path}")
+
+# Update the path to be absolute
+settings.GOOGLE_WORKSPACE.SERVICE_ACCOUNT_FILE = str(service_account_path)
+
+logger.info("Google Workspace configuration loaded successfully")
 logger.info("Gmail SMTP configuration loaded successfully")

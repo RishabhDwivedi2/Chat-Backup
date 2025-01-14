@@ -109,6 +109,9 @@ This template provides a solid foundation for building scalable and maintainable
 
 *Setup Notes*
 
+**Note:** Ensure to run the following setups (MinIO, Redis, and Ngrok) before starting the backend application.
+
+
 `MinIO DB Setup`
   1. Install MinIO by running the following command:
      ```bash

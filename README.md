@@ -107,8 +107,9 @@ The project is organized into two main sections: backend and frontend.
 `Conclusion`
 This template provides a solid foundation for building scalable and maintainable web applications. It combines best practices in full-stack development with a suite of tools to enhance productivity and code quality. Whether you're building a small project or a large-scale application, this template offers the flexibility and robustness to meet your development needs.
 
-`Setup Notes`
-- **MinIO DB Setup**
+*Setup Notes*
+
+`MinIO DB Setup`
   1. Install MinIO by running the following command:
      ```bash
      wget https://dl.min.io/server/minio/release/linux-amd64/minio
@@ -128,7 +129,7 @@ This template provides a solid foundation for building scalable and maintainable
      - **Secret Key**: `minioadmin`
   5. Ensure that MinIO is running on `localhost:9000` (default).
 
-- **Redis Setup on Ubuntu**
+`Redis Setup on Ubuntu`
   1. Update your package list:
      ```bash
      sudo apt update
@@ -152,7 +153,7 @@ This template provides a solid foundation for building scalable and maintainable
      ```
      You should receive a response of `PONG`.
 
-- **Ngrok Setup**
+`Ngrok Setup`
   1. In a separate terminal, run Ngrok to expose your local server:
      ```bash
      ngrok http 9000

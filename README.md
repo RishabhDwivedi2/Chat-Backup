@@ -107,3 +107,55 @@ The project is organized into two main sections: backend and frontend.
 `Conclusion`
 This template provides a solid foundation for building scalable and maintainable web applications. It combines best practices in full-stack development with a suite of tools to enhance productivity and code quality. Whether you're building a small project or a large-scale application, this template offers the flexibility and robustness to meet your development needs.
 
+`Setup Notes`
+- **MinIO DB Setup**
+  1. Install MinIO by running the following command:
+     ```bash
+     wget https://dl.min.io/server/minio/release/linux-amd64/minio
+     chmod +x minio
+     sudo mv minio /usr/local/bin/
+     ```
+  2. Create a directory for MinIO data:
+     ```bash
+     mkdir ~/minio-data
+     ```
+  3. Start MinIO server with the following command:
+     ```bash
+     minio server ~/minio-data --console-address ":9001"
+     ```
+  4. Access MinIO at `http://localhost:9000` using the following credentials:
+     - **Access Key**: `minioadmin`
+     - **Secret Key**: `minioadmin`
+  5. Ensure that MinIO is running on `localhost:9000` (default).
+
+- **Redis Setup on Ubuntu**
+  1. Update your package list:
+     ```bash
+     sudo apt update
+     ```
+  2. Install Redis server:
+     ```bash
+     sudo apt install redis-server
+     ```
+  3. After installation, configure Redis to start on boot:
+     ```bash
+     sudo systemctl enable redis-server
+     ```
+  4. Start the Redis service:
+     ```bash
+     sudo systemctl start redis-server
+     ```
+  5. If prompted, restart your computer to ensure Redis starts correctly.
+  6. Verify that Redis is running:
+     ```bash
+     redis-cli ping
+     ```
+     You should receive a response of `PONG`.
+
+- **Ngrok Setup**
+  1. In a separate terminal, run Ngrok to expose your local server:
+     ```bash
+     ngrok http 9000
+     ```
+  2. Copy the generated Ngrok URL.
+  3. Update the URL in your Google Cloud email bot project's subscription settings to point to the Ngrok URL.

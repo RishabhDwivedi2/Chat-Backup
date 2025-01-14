@@ -159,7 +159,7 @@ This template provides a solid foundation for building scalable and maintainable
 `Ngrok Setup`
   1. In a separate terminal, run Ngrok to expose your local server:
      ```bash
-     ngrok http 9000
+     ngrok http 8000
      ```
   2. Copy the generated Ngrok URL.
   3. Update the URL in your Google Cloud email bot project's subscription settings to point to the Ngrok URL.
